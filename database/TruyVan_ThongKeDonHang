@@ -1,141 +1,113 @@
+-- ============================================================================
+-- MÔN: HỆ QUẢN TRỊ CƠ SỞ DỮ LIỆU (SQL SERVER)
+-- BÀI TẬP LỚN / ĐỒ ÁN: QUẢN LÝ GIAO HÀNG DRONE
+-- SINH VIÊN thực hiện: Đình Khôi
+-- NHIỆM VỤ: Truy vấn xem danh sách và thống kê đơn hàng
+-- ============================================================================
+
 USE DroneDeliveryDB;
 GO
 
--- ============================================================================
--- 1. CÁC CÂU TRUY VẤN XEM VÀ QUẢN LÝ ĐƠN HÀNG (STORED PROCEDURES)
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 1. CÁC STORED PROCEDURE XEM VÀ TRUY VẤN ĐƠN HÀNG
+-- ----------------------------------------------------------------------------
 
--- 1.1. Lấy danh sách đơn hàng có phân trang và lọc theo trạng thái
-IF OBJECT_ID('sp_GetOrdersList', 'P') IS NOT NULL DROP PROCEDURE sp_GetOrdersList;
-GO
-CREATE PROCEDURE sp_GetOrdersList
-    @Status NVARCHAR(50) = NULL,
-    @PageIndex INT = 1,
-    @PageSize INT = 10
+-- 1.1. Thủ tục xem tất cả danh sách đơn hàng (kèm tên khách hàng và trạm)
+CREATE PROCEDURE sp_XemDanhSachDonHang
 AS
 BEGIN
-    SET NOCOUNT ON;
-
     SELECT 
-        o.OrderId,
-        o.TrackingCode,
-        c.FullName AS CustomerName,
-        s.StationName AS DepartureStation,
-        o.ReceiverAddress,
-        o.PackageWeightKg,
-        o.Status,
-        o.CreatedDate
+        o.OrderId AS [Mã Đơn],
+        o.TrackingCode AS [Mã Vận Đơn],
+        c.FullName AS [Tên Khách Hàng],
+        s.StationName AS [Trạm Gửi],
+        o.ReceiverAddress AS [Địa Chỉ Nhận],
+        o.PackageWeightKg AS [Khối Lượng (Kg)],
+        o.Status AS [Trạng Thái],
+        o.CreatedDate AS [Ngày Tạo]
     FROM Orders o
     INNER JOIN Users c ON o.CustomerId = c.UserId
     LEFT JOIN Stations s ON o.DepartureStationId = s.StationId
-    WHERE (@Status IS NULL OR o.Status = @Status)
-    ORDER BY o.CreatedDate DESC
-    OFFSET (@PageIndex - 1) * @PageSize ROWS
-    FETCH NEXT @PageSize ROWS ONLY;
+    ORDER BY o.CreatedDate DESC;
 END;
 GO
 
--- 1.2. Xem chi tiết 1 đơn hàng theo OrderId hoặc TrackingCode
-IF OBJECT_ID('sp_GetOrderDetail', 'P') IS NOT NULL DROP PROCEDURE sp_GetOrderDetail;
-GO
-CREATE PROCEDURE sp_GetOrderDetail
-    @OrderId INT = NULL,
-    @TrackingCode NVARCHAR(50) = NULL
+-- 1.2. Thủ tục xem chi tiết 1 đơn hàng theo Mã Vận Đơn (TrackingCode)
+CREATE PROCEDURE sp_XemChiTietDonHang
+    @MaVanDon NVARCHAR(50)
 AS
 BEGIN
-    SET NOCOUNT ON;
-
     SELECT 
         o.OrderId,
         o.TrackingCode,
-        c.FullName AS CustomerName,
-        c.PhoneNumber AS CustomerPhone,
-        sDep.StationName AS DepartureStation,
-        sArr.StationName AS ArrivalStation,
-        o.ReceiverName,
-        o.ReceiverPhone,
-        o.ReceiverAddress,
-        o.PackageWeightKg,
-        o.DeliveryFee,
-        o.EstimatedMinutes,
-        o.Status,
-        o.CreatedDate,
-        o.CompletedDate
+        c.FullName AS TenKhachHang,
+        c.PhoneNumber AS SDTKhachHang,
+        o.ReceiverName AS TenNguoiNhan,
+        o.ReceiverPhone AS SDTNguoiNhan,
+        o.ReceiverAddress AS DiaChiGiao,
+        o.DeliveryFee AS PhiGiaoHang,
+        o.Status AS TrangThai,
+        o.CreatedDate AS NgayTao
     FROM Orders o
     INNER JOIN Users c ON o.CustomerId = c.UserId
-    LEFT JOIN Stations sDep ON o.DepartureStationId = sDep.StationId
-    LEFT JOIN Stations sArr ON o.ArrivalStationId = sArr.StationId
-    WHERE (@OrderId IS NOT NULL AND o.OrderId = @OrderId)
-       OR (@TrackingCode IS NOT NULL AND o.TrackingCode = @TrackingCode);
+    WHERE o.TrackingCode = @MaVanDon;
 END;
 GO
 
--- 1.3. Tìm kiếm đơn hàng theo tên khách hàng hoặc địa chỉ giao
-IF OBJECT_ID('sp_SearchOrders', 'P') IS NOT NULL DROP PROCEDURE sp_SearchOrders;
-GO
-CREATE PROCEDURE sp_SearchOrders
-    @Keyword NVARCHAR(100)
+-- 1.3. Thủ tục tìm kiếm đơn hàng theo Tên Khách Hàng hoặc Địa Chỉ
+CREATE PROCEDURE sp_TimKiemDonHang
+    @TuKhoa NVARCHAR(100)
 AS
 BEGIN
-    SET NOCOUNT ON;
-
     SELECT 
         o.OrderId,
         o.TrackingCode,
-        c.FullName AS CustomerName,
+        c.FullName AS TenKhachHang,
         o.ReceiverAddress,
         o.Status,
         o.CreatedDate
     FROM Orders o
     INNER JOIN Users c ON o.CustomerId = c.UserId
-    WHERE c.FullName LIKE '%' + @Keyword + '%'
-       OR o.ReceiverAddress LIKE '%' + @Keyword + '%'
-       OR o.TrackingCode LIKE '%' + @Keyword + '%';
+    WHERE c.FullName LIKE '%' + @TuKhoa + '%'
+       OR o.ReceiverAddress LIKE '%' + @TuKhoa + '%';
 END;
 GO
 
 
--- ============================================================================
--- 2. CÁC VIEW TRUY VẤN THỐNG KÊ BÁO CÁO (DASHBOARD ANALYTICS)
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 2. CÁC VIEW THỐNG KÊ ĐƠN HÀNG (DÙNG CHO DASHBOARD BÁO CÁO)
+-- ----------------------------------------------------------------------------
 
--- 2.1. View Thống kê tổng quan đơn hàng theo trạng thái
-IF OBJECT_ID('vw_OrderStatusSummary', 'V') IS NOT NULL DROP VIEW vw_OrderStatusSummary;
-GO
-CREATE VIEW vw_OrderStatusSummary AS
+-- 2.1. View đếm tổng số đơn hàng và tổng doanh thu theo từng trạng thái
+CREATE VIEW vw_ThongKeTheoTrangThai
+AS
 SELECT 
-    Status,
-    COUNT(OrderId) AS TotalOrders,
-    SUM(DeliveryFee) AS TotalRevenue,
-    AVG(PackageWeightKg) AS AvgPackageWeight
+    Status AS TrangThai,
+    COUNT(OrderId) AS TongSoDon,
+    SUM(DeliveryFee) AS TongDoanhThu
 FROM Orders
 GROUP BY Status;
 GO
 
--- 2.2. View Thống kê doanh thu và số lượng đơn hàng theo ngày
-IF OBJECT_ID('vw_DailyDeliveryStats', 'V') IS NOT NULL DROP VIEW vw_DailyDeliveryStats;
-GO
-CREATE VIEW vw_DailyDeliveryStats AS
+-- 2.2. View thống kê số đơn hàng và doanh thu theo từng ngày
+CREATE VIEW vw_ThongKeDonHangTheoNgay
+AS
 SELECT 
-    CAST(CreatedDate AS DATE) AS OrderDate,
-    COUNT(OrderId) AS TotalOrders,
-    SUM(CASE WHEN Status = 'Completed' THEN 1 ELSE 0 END) AS SuccessfulDeliveries,
-    SUM(CASE WHEN Status = 'Failed' THEN 1 ELSE 0 END) AS FailedDeliveries,
-    SUM(CASE WHEN Status = 'Completed' THEN DeliveryFee ELSE 0 END) AS DailyRevenue
+    CAST(CreatedDate AS DATE) AS Ngay,
+    COUNT(OrderId) AS TongSoDonTrongNgay,
+    SUM(DeliveryFee) AS DoanhThuTrongNgay
 FROM Orders
 GROUP BY CAST(CreatedDate AS DATE);
 GO
 
--- 2.3. View Thống kê tần suất sử dụng của các trạm hạ cánh (Landing Stations)
-IF OBJECT_ID('vw_StationUsageStats', 'V') IS NOT NULL DROP VIEW vw_StationUsageStats;
-GO
-CREATE VIEW vw_StationUsageStats AS
+-- 2.3. View thống kê số lượng đơn gửi đi từ mỗi Trạm hạ cánh
+CREATE VIEW vw_ThongKeDonTheoTram
+AS
 SELECT 
-    s.StationId,
-    s.StationName,
-    s.LocationAddress,
-    COUNT(o.OrderId) AS TotalDepartures
+    s.StationId AS MaTram,
+    s.StationName AS TenTram,
+    COUNT(o.OrderId) AS SoLuongDonGui
 FROM Stations s
 LEFT JOIN Orders o ON s.StationId = o.DepartureStationId
-GROUP BY s.StationId, s.StationName, s.LocationAddress;
+GROUP BY s.StationId, s.StationName;
 GO
