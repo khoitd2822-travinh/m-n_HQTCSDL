@@ -1,10 +1,3 @@
--- ============================================================================
--- MÔN: HỆ QUẢN TRỊ CƠ SỞ DỮ LIỆU (SQL SERVER)
--- BÀI TẬP LỚN / ĐỒ ÁN: QUẢN LÝ GIAO HÀNG DRONE
--- SINH VIÊN thực hiện: Đình Khôi
--- NHIỆM VỤ: Truy vấn xem danh sách và thống kê đơn hàng
--- ============================================================================
-
 USE DroneDeliveryDB;
 GO
 
