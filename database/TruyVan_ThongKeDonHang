@@ -1,106 +1,361 @@
+
 USE DroneDeliveryDB;
 GO
 
--- ----------------------------------------------------------------------------
--- 1. CÁC STORED PROCEDURE XEM VÀ TRUY VẤN ĐƠN HÀNG
--- ----------------------------------------------------------------------------
+-- ============================================================
+-- SMART DRONE DELIVERY
+-- STORED PROCEDURES, VIEWS VA LICH SU VAN CHUYEN
+-- SQL SERVER
+-- ============================================================
 
--- 1.1. Thủ tục xem tất cả danh sách đơn hàng (kèm tên khách hàng và trạm)
-CREATE PROCEDURE sp_XemDanhSachDonHang
+
+-- ============================================================
+-- 0. TAO BANG LICH SU VAN CHUYEN NEU CHUA TON TAI
+-- ============================================================
+
+IF OBJECT_ID('dbo.DeliveryHistory', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.DeliveryHistory
+    (
+        HistoryId INT IDENTITY(1,1) PRIMARY KEY,
+        OrderId INT NOT NULL,
+        OldStatus NVARCHAR(30) NULL,
+        NewStatus NVARCHAR(30) NOT NULL,
+        UpdatedBy INT NULL,
+        Note NVARCHAR(255) NULL,
+        UpdatedAt DATETIME2 NOT NULL
+            CONSTRAINT DF_DeliveryHistory_UpdatedAt
+            DEFAULT SYSDATETIME(),
+
+        CONSTRAINT FK_DeliveryHistory_Orders
+            FOREIGN KEY (OrderId)
+            REFERENCES dbo.Orders(OrderId),
+
+        CONSTRAINT FK_DeliveryHistory_Users
+            FOREIGN KEY (UpdatedBy)
+            REFERENCES dbo.Users(UserId)
+    );
+END;
+GO
+
+
+-- ============================================================
+-- 1. STORED PROCEDURES QUAN LY DON HANG
+-- ============================================================
+
+
+-- 1.1. XEM DANH SACH DON HANG
+-- Bao gom ten khach hang, tram gui, khoi luong va trang thai
+
+CREATE OR ALTER PROCEDURE dbo.sp_XemDanhSachDonHang
 AS
 BEGIN
-    SELECT 
-        o.OrderId AS [Mã Đơn],
-        o.TrackingCode AS [Mã Vận Đơn],
-        c.FullName AS [Tên Khách Hàng],
-        s.StationName AS [Trạm Gửi],
-        o.ReceiverAddress AS [Địa Chỉ Nhận],
-        o.PackageWeightKg AS [Khối Lượng (Kg)],
-        o.Status AS [Trạng Thái],
-        o.CreatedDate AS [Ngày Tạo]
-    FROM Orders o
-    INNER JOIN Users c ON o.CustomerId = c.UserId
-    LEFT JOIN Stations s ON o.DepartureStationId = s.StationId
+    SET NOCOUNT ON;
+
+    SELECT
+        o.OrderId AS [Ma Don],
+        o.TrackingCode AS [Ma Van Don],
+        c.FullName AS [Ten Khach Hang],
+        s.StationName AS [Tram Gui],
+        o.ReceiverName AS [Ten Nguoi Nhan],
+        o.ReceiverPhone AS [SDT Nguoi Nhan],
+        o.ReceiverAddress AS [Dia Chi Nhan],
+        o.PackageWeightKg AS [Khoi Luong (Kg)],
+        o.DeliveryFee AS [Phi Giao Hang],
+        o.Status AS [Trang Thai],
+        o.CreatedDate AS [Ngay Tao]
+    FROM dbo.Orders AS o
+    INNER JOIN dbo.Users AS c
+        ON o.CustomerId = c.UserId
+    LEFT JOIN dbo.Stations AS s
+        ON o.DepartureStationId = s.StationId
     ORDER BY o.CreatedDate DESC;
 END;
 GO
 
--- 1.2. Thủ tục xem chi tiết 1 đơn hàng theo Mã Vận Đơn (TrackingCode)
-CREATE PROCEDURE sp_XemChiTietDonHang
+
+-- 1.2. XEM CHI TIET DON HANG THEO MA VAN DON
+
+CREATE OR ALTER PROCEDURE dbo.sp_XemChiTietDonHang
     @MaVanDon NVARCHAR(50)
 AS
 BEGIN
-    SELECT 
-        o.OrderId,
-        o.TrackingCode,
+    SET NOCOUNT ON;
+
+    SELECT
+        o.OrderId AS MaDon,
+        o.TrackingCode AS MaVanDon,
         c.FullName AS TenKhachHang,
         c.PhoneNumber AS SDTKhachHang,
         o.ReceiverName AS TenNguoiNhan,
         o.ReceiverPhone AS SDTNguoiNhan,
         o.ReceiverAddress AS DiaChiGiao,
+        o.PackageWeightKg AS KhoiLuongKg,
         o.DeliveryFee AS PhiGiaoHang,
         o.Status AS TrangThai,
         o.CreatedDate AS NgayTao
-    FROM Orders o
-    INNER JOIN Users c ON o.CustomerId = c.UserId
+    FROM dbo.Orders AS o
+    INNER JOIN dbo.Users AS c
+        ON o.CustomerId = c.UserId
     WHERE o.TrackingCode = @MaVanDon;
 END;
 GO
 
--- 1.3. Thủ tục tìm kiếm đơn hàng theo Tên Khách Hàng hoặc Địa Chỉ
-CREATE PROCEDURE sp_TimKiemDonHang
+
+-- 1.3. TIM KIEM DON HANG
+-- Tim theo ma van don, ten khach hang hoac dia chi
+
+CREATE OR ALTER PROCEDURE dbo.sp_TimKiemDonHang
     @TuKhoa NVARCHAR(100)
 AS
 BEGIN
-    SELECT 
-        o.OrderId,
-        o.TrackingCode,
+    SET NOCOUNT ON;
+
+    SELECT
+        o.OrderId AS MaDon,
+        o.TrackingCode AS MaVanDon,
         c.FullName AS TenKhachHang,
-        o.ReceiverAddress,
-        o.Status,
-        o.CreatedDate
-    FROM Orders o
-    INNER JOIN Users c ON o.CustomerId = c.UserId
-    WHERE c.FullName LIKE '%' + @TuKhoa + '%'
-       OR o.ReceiverAddress LIKE '%' + @TuKhoa + '%';
+        o.ReceiverAddress AS DiaChiGiao,
+        o.PackageWeightKg AS KhoiLuongKg,
+        o.Status AS TrangThai,
+        o.CreatedDate AS NgayTao
+    FROM dbo.Orders AS o
+    INNER JOIN dbo.Users AS c
+        ON o.CustomerId = c.UserId
+    WHERE
+        o.TrackingCode LIKE N'%' + @TuKhoa + N'%'
+        OR c.FullName LIKE N'%' + @TuKhoa + N'%'
+        OR o.ReceiverAddress LIKE N'%' + @TuKhoa + N'%'
+    ORDER BY o.CreatedDate DESC;
 END;
 GO
 
 
--- ----------------------------------------------------------------------------
--- 2. CÁC VIEW THỐNG KÊ ĐƠN HÀNG (DÙNG CHO DASHBOARD BÁO CÁO)
--- ----------------------------------------------------------------------------
+-- ============================================================
+-- 2. STORED PROCEDURES LICH SU VAN CHUYEN
+-- ============================================================
 
--- 2.1. View đếm tổng số đơn hàng và tổng doanh thu theo từng trạng thái
-CREATE VIEW vw_ThongKeTheoTrangThai
+
+-- 2.1. XEM LICH SU VAN CHUYEN THEO MA VAN DON
+
+CREATE OR ALTER PROCEDURE dbo.sp_XemLichSuVanChuyen
+    @MaVanDon NVARCHAR(50)
 AS
-SELECT 
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT
+        o.TrackingCode AS MaVanDon,
+        h.OldStatus AS TrangThaiCu,
+        h.NewStatus AS TrangThaiMoi,
+        h.UpdatedAt AS ThoiGianCapNhat,
+        u.FullName AS NguoiCapNhat,
+        h.Note AS GhiChu
+    FROM dbo.Orders AS o
+    INNER JOIN dbo.DeliveryHistory AS h
+        ON o.OrderId = h.OrderId
+    LEFT JOIN dbo.Users AS u
+        ON h.UpdatedBy = u.UserId
+    WHERE o.TrackingCode = @MaVanDon
+    ORDER BY h.UpdatedAt ASC, h.HistoryId ASC;
+END;
+GO
+
+
+-- 2.2. CAP NHAT TRANG THAI VA LUU LICH SU
+-- Moi lan doi trang thai se them mot dong vao DeliveryHistory
+
+CREATE OR ALTER PROCEDURE dbo.sp_CapNhatTrangThaiDonHang
+    @MaVanDon NVARCHAR(50),
+    @TrangThaiMoi NVARCHAR(30),
+    @NguoiCapNhatId INT,
+    @GhiChu NVARCHAR(255) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @OrderId INT;
+    DECLARE @TrangThaiCu NVARCHAR(30);
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        SELECT
+            @OrderId = OrderId,
+            @TrangThaiCu = Status
+        FROM dbo.Orders WITH (UPDLOCK, HOLDLOCK)
+        WHERE TrackingCode = @MaVanDon;
+
+        IF @OrderId IS NULL
+        BEGIN
+            THROW 50001, N'Khong tim thay don hang.', 1;
+        END;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM dbo.Users
+            WHERE UserId = @NguoiCapNhatId
+        )
+        BEGIN
+            THROW 50002, N'Nguoi cap nhat khong ton tai.', 1;
+        END;
+
+        IF @TrangThaiMoi NOT IN
+        (
+            N'Pending',
+            N'Approved',
+            N'Delivering',
+            N'Completed',
+            N'Failed',
+            N'Cancelled'
+        )
+        BEGIN
+            THROW 50003, N'Trang thai don hang khong hop le.', 1;
+        END;
+
+        IF @TrangThaiCu <> @TrangThaiMoi
+        BEGIN
+            UPDATE dbo.Orders
+            SET Status = @TrangThaiMoi
+            WHERE OrderId = @OrderId;
+
+            INSERT INTO dbo.DeliveryHistory
+            (
+                OrderId,
+                OldStatus,
+                NewStatus,
+                UpdatedBy,
+                Note,
+                UpdatedAt
+            )
+            VALUES
+            (
+                @OrderId,
+                @TrangThaiCu,
+                @TrangThaiMoi,
+                @NguoiCapNhatId,
+                @GhiChu,
+                SYSDATETIME()
+            );
+        END;
+
+        COMMIT TRANSACTION;
+
+        SELECT
+            @MaVanDon AS MaVanDon,
+            @TrangThaiCu AS TrangThaiCu,
+            @TrangThaiMoi AS TrangThaiMoi,
+            N'Cap nhat trang thai thanh cong.' AS ThongBao;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0
+            ROLLBACK TRANSACTION;
+
+        THROW;
+    END CATCH;
+END;
+GO
+
+
+-- ============================================================
+-- 3. VIEWS THONG KE DON HANG
+-- ============================================================
+
+
+-- 3.1. THONG KE DON HANG THEO TRANG THAI
+
+CREATE OR ALTER VIEW dbo.vw_ThongKeTheoTrangThai
+AS
+SELECT
     Status AS TrangThai,
-    COUNT(OrderId) AS TongSoDon,
-    SUM(DeliveryFee) AS TongDoanhThu
-FROM Orders
+    COUNT(*) AS TongSoDon,
+
+    -- Tong phi giao hang cua cac don da hoan thanh
+    SUM
+    (
+        CASE
+            WHEN Status = N'Completed'
+                THEN COALESCE(DeliveryFee, 0)
+            ELSE 0
+        END
+    ) AS DoanhThuDonThanhCong
+
+FROM dbo.Orders
 GROUP BY Status;
 GO
 
--- 2.2. View thống kê số đơn hàng và doanh thu theo từng ngày
-CREATE VIEW vw_ThongKeDonHangTheoNgay
+
+-- 3.2. THONG KE DON HANG VA DOANH THU THEO NGAY TAO
+
+CREATE OR ALTER VIEW dbo.vw_ThongKeDonHangTheoNgay
 AS
-SELECT 
+SELECT
     CAST(CreatedDate AS DATE) AS Ngay,
-    COUNT(OrderId) AS TongSoDonTrongNgay,
-    SUM(DeliveryFee) AS DoanhThuTrongNgay
-FROM Orders
+    COUNT(*) AS TongSoDonTrongNgay,
+
+    SUM(COALESCE(DeliveryFee, 0))
+        AS TongPhiGiaoHang,
+
+    SUM
+    (
+        CASE
+            WHEN Status = N'Completed'
+                THEN COALESCE(DeliveryFee, 0)
+            ELSE 0
+        END
+    ) AS DoanhThuDonThanhCong
+
+FROM dbo.Orders
 GROUP BY CAST(CreatedDate AS DATE);
 GO
 
--- 2.3. View thống kê số lượng đơn gửi đi từ mỗi Trạm hạ cánh
-CREATE VIEW vw_ThongKeDonTheoTram
+
+-- 3.3. THONG KE SO DON GUI DI TU MOI TRAM
+
+CREATE OR ALTER VIEW dbo.vw_ThongKeDonTheoTram
 AS
-SELECT 
+SELECT
     s.StationId AS MaTram,
     s.StationName AS TenTram,
     COUNT(o.OrderId) AS SoLuongDonGui
-FROM Stations s
-LEFT JOIN Orders o ON s.StationId = o.DepartureStationId
-GROUP BY s.StationId, s.StationName;
+FROM dbo.Stations AS s
+LEFT JOIN dbo.Orders AS o
+    ON s.StationId = o.DepartureStationId
+GROUP BY
+    s.StationId,
+    s.StationName;
+GO
+
+
+-- ============================================================
+-- 4. CAC CAU LENH KIEM TRA
+-- Chay tung lenh khi can kiem tra ket qua
+-- ============================================================
+
+-- Xem danh sach don hang
+-- EXEC dbo.sp_XemDanhSachDonHang;
+
+-- Xem chi tiet don hang
+-- EXEC dbo.sp_XemChiTietDonHang @MaVanDon = N'TRK0001';
+
+-- Tim kiem don hang
+-- EXEC dbo.sp_TimKiemDonHang @TuKhoa = N'TRK0001';
+
+-- Xem lich su van chuyen
+-- EXEC dbo.sp_XemLichSuVanChuyen @MaVanDon = N'TRK0001';
+
+-- Cap nhat trang thai va luu lich su
+-- Thay 1 bang UserId hop le trong database
+-- EXEC dbo.sp_CapNhatTrangThaiDonHang
+--     @MaVanDon = N'TRK0001',
+--     @TrangThaiMoi = N'Approved',
+--     @NguoiCapNhatId = 1,
+--     @GhiChu = N'Don hang da duoc duyet';
+
+-- Xem cac view thong ke
+-- SELECT * FROM dbo.vw_ThongKeTheoTrangThai;
+-- SELECT * FROM dbo.vw_ThongKeDonHangTheoNgay;
+-- SELECT * FROM dbo.vw_ThongKeDonTheoTram;
 GO
