@@ -1,1 +1,0 @@
-"""SmartDroneDelivery AI service package."""
