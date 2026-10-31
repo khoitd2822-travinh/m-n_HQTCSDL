@@ -1,0 +1,35 @@
+{
+  "eta": {
+    "method": "POST",
+    "path": "/ai/eta",
+    "body": {
+      "distance_km": 1.2,
+      "package_weight_kg": 0.5,
+      "drone_battery_pct": 80,
+      "weather_delay_min": 0,
+      "station_delay_min": 1
+    }
+  },
+  "chat": {
+    "method": "POST",
+    "path": "/ai/chat",
+    "body": {
+      "message": "Đơn hàng của tôi đang ở đâu?",
+      "order_status": "InTransit",
+      "estimated_minutes": 6
+    }
+  },
+  "summary": {
+    "method": "POST",
+    "path": "/ai/summary",
+    "body": {
+      "order_code": "ORD-1024",
+      "status": "InTransit",
+      "pickup_station": "Trạm A",
+      "dropoff_station": "Trạm B",
+      "drone_code": "DR-001",
+      "battery_pct": 80,
+      "note": "Giao tài liệu"
+    }
+  }
+}
