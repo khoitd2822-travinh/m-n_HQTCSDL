@@ -894,4 +894,96 @@ GO</code></pre>
         }
     </script>
 </body>
+
+<script>
+
+
+
+    // Đường dẫn Base URL của Backend API mà bạn vừa dựng thành công
+    const API_BASE_URL = 'http://localhost:5139/api';
+
+    // 1. Tải danh sách đơn hàng từ Backend (GET /api/Orders)
+    async function loadOrdersFromBackend() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/Orders`);
+            if (!response.ok) throw new Error('Không thể kết nối Backend API');
+            
+            const orders = await response.json();
+            
+            // Render vào bảng ở Tab "Duyệt đơn hàng"
+            const fullTableBody = document.getElementById('full-orders-tbody');
+            if (fullTableBody) {
+                fullTableBody.innerHTML = orders.map(o => `
+                    <tr class="hover:bg-slate-800/40 transition">
+                        <td class="p-4 font-mono text-sky-400 font-bold">#ORD-${o.id}</td>
+                        <td class="p-4 font-medium text-white">Khách hàng #${o.customerId}</td>
+                        <td class="p-4 text-slate-300">Đơn hàng Drone #${o.id}</td>
+                        <td class="p-4 text-slate-400">Cấp độ ưu tiên: ${o.status}</td>
+                        <td class="p-4 text-slate-400">Trạm ${o.pickupStationId} ➔ Trạm ${o.dropoffStationId}</td>
+                        <td class="p-4">
+                            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                                o.status === 'Pending' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            }">${o.status}</span>
+                        </td>
+                        <td class="p-4 text-slate-400">Auto Assign</td>
+                        <td class="p-4 text-center">
+                            <button class="bg-sky-500/20 text-sky-400 px-3 py-1 rounded-lg hover:bg-sky-500/30 text-xs">Chi tiết</button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            // Cập nhật số lượng đơn hàng chờ trên Badge
+            const pendingBadge = document.getElementById('pending-badge');
+            if (pendingBadge) {
+                const pendingCount = orders.filter(o => o.status === 'Pending').length;
+                pendingBadge.innerText = pendingCount;
+            }
+
+        } catch (error) {
+            console.error('Lỗi khi tải đơn hàng:', error);
+        }
+    }
+
+    // 2. Gửi đơn hàng mới từ Modal về Backend (POST /api/Orders)
+    async function handleCreateOrder(event) {
+        event.preventDefault();
+
+        const newOrderData = {
+            customerId: 1, // ID mặc định hoặc lấy từ form
+            pickupStationId: 1,
+            dropoffStationId: 2,
+            status: "Pending",
+            estimatedMinutes: 15.0
+        };
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/Orders`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(newOrderData)
+            });
+
+            if (response.ok) {
+                alert('Tạo đơn hàng mới thành công!');
+                closeModal();
+                loadOrdersFromBackend(); // Tải lại bảng để cập nhật dữ liệu mới
+            } else {
+                alert('Có lỗi xảy ra khi tạo đơn hàng!');
+            }
+        } catch (error) {
+            console.error('Lỗi khi tạo đơn hàng:', error);
+            alert('Không thể kết nối đến máy chủ Backend!');
+        }
+    }
+
+    // Tự động tải dữ liệu khi vừa mở trang
+    document.addEventListener('DOMContentLoaded', () => {
+        loadOrdersFromBackend();
+    });
+  
+</script>
+
 </html>
