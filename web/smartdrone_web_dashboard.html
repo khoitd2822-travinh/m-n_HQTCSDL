@@ -983,6 +983,69 @@ GO</code></pre>
     document.addEventListener('DOMContentLoaded', () => {
         loadOrdersFromBackend();
     });
+    
+    // Tự động nạp danh sách đơn hàng thật vào bảng "Duyệt đơn hàng" khi mở trang
+async function loadRealOrdersForApproval() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/Orders`);
+        if (!response.ok) throw new Error('Không thể gọi API Orders');
+        
+        const orders = await response.json();
+        console.log("Dữ liệu đơn hàng cho trang Duyệt:", orders);
+
+        // Tìm bảng hiển thị trong trang Duyệt đơn hàng
+        // (Dựa theo cấu trúc bảng của template SmartDrone)
+        const tables = document.querySelectorAll('table');
+        // Thường bảng ở trang duyệt đơn là bảng thứ 2 hoặc bảng có chứa cột "Mã đơn"
+        tables.forEach(table => {
+            const headerText = table.textContent;
+            if (headerText.includes('MÃ ĐƠN') || headerText.includes('KHÁCH HÀNG')) {
+                const tbody = table.querySelector('tbody');
+                if (!tbody) return;
+
+                // Xóa dữ liệu cứng cũ, thay bằng dữ liệu thật từ Database
+                tbody.innerHTML = orders.map(order => `
+                    <tr>
+                        <td><strong>#ORD-${order.id || order.code}</strong></td>
+                        <td>${order.customerName || 'Khách hàng #1'}</td>
+                        <td>${order.itemName || 'Đơn hàng Drone'}</td>
+                        <td>${order.weight ? order.weight + ' kg' : 'Cấp độ ưu tiên: ' + (order.priority || 'Pending')}</td>
+                        <td>Trạm 1 → Trạm 2</td>
+                        <td><span class="badge ${order.status === 'Scheduled' ? 'bg-success' : 'bg-warning'}">${order.status || 'Pending'}</span></td>
+                        <td>${order.droneId ? 'Drone #' + order.droneId : 'Auto Assign'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-info text-white px-3 py-1 rounded" onclick="viewOrderDetail(${order.id})">Chi tiết</button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        });
+
+    } catch (error) {
+        console.error("Lỗi đồng bộ bảng Duyệt đơn:", error);
+    }
+}
+
+// Hàm xem chi tiết đơn hàng thật khi bấm nút
+window.viewOrderDetail = async function(orderId) {
+    try {
+        let res = await fetch(`${API_BASE_URL}/Orders/${orderId}`);
+        if (res.ok) {
+            let order = await res.json();
+            alert(`--- CHI TIẾT ĐƠN HÀNG #${order.id} ---\n- Khách hàng: ${order.customerName}\n- Hàng hóa: ${order.itemName}\n- Trạng thái: ${order.status}\n- Khoảng cách/Thời gian: ${order.estimatedMinutes || 15} phút`);
+        } else {
+            alert(`Đang xem chi tiết đơn hàng ID: ${orderId} từ hệ thống Database.`);
+        }
+    } catch (e) {
+        alert(`Mở thông tin chi tiết đơn hàng ID: ${orderId}`);
+    }
+};
+
+// Kích hoạt chạy ngay khi load trang
+document.addEventListener('DOMContentLoaded', () => {
+    loadRealOrdersForApproval();
+});
+    
   
 </script>
 

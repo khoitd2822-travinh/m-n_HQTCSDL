@@ -22,6 +22,15 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Cấu hình phân quyền chi tiết dựa trên Role (RBAC)
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("CustomerPolicy", policy => policy.RequireRole("Customer"));
+    options.AddPolicy("DispatcherPolicy", policy => policy.RequireRole("Dispatcher", "Admin"));
+    options.AddPolicy("OperatorPolicy", policy => policy.RequireRole("StationOperator", "Admin"));
+    options.AddPolicy("LogisticsManagerPolicy", policy => policy.RequireRole("LogisticsManager", "Admin"));
+});
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using System.ComponentModel.DataAnnotations.Schema; // Thêm thư viện này để dùng [Column]
+using System.ComponentModel.DataAnnotations.Schema;
+using SmartDroneDelivery.Api.Models; // Đảm bảo có using Models nếu cần
 
 namespace SmartDroneDelivery.Api.Data
 {
@@ -15,7 +16,7 @@ namespace SmartDroneDelivery.Api.Data
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            base.OnModelCreating(modelBuilder);           
+            base.OnModelCreating(modelBuilder);          
             modelBuilder.Entity<User>().ToTable("users");
             modelBuilder.Entity<Order>()
                 .Property(o => o.Status)
@@ -46,20 +47,14 @@ namespace SmartDroneDelivery.Api.Data
     {
         [Column("id")]
         public int Id { get; set; }
-        
         [Column("customer_id")]
         public int CustomerId { get; set; }
-        
         [Column("pickup_station_id")]
         public int PickupStationId { get; set; }
-        
         [Column("dropoff_station_id")]
         public int DropoffStationId { get; set; }
-        
-        
         [Column("status")]
         public string Status { get; set; } = "Draft";
-        
         [Column("estimated_minutes")]
         public decimal EstimatedMinutes { get; set; }
         
@@ -67,18 +62,6 @@ namespace SmartDroneDelivery.Api.Data
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
-    [Table("landing_stations")]
-    public class LandingStation
-    {
-        [Column("id")]
-        public int Id { get; set; }
-        [Column("name")]
-        public string Name { get; set; } = string.Empty;
-        [Column("status")]
-        public string Status { get; set; } = string.Empty;
-        [Column("capacity")]
-        public int Capacity { get; set; }
-    }
 
     [Table("drones")]
     public class Drone
