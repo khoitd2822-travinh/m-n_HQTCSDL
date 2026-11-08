@@ -1,3 +1,20 @@
-.env
-*.log
-node_modules/
+# .NET / C#
+bin/
+obj/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Python / Cache
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+
+# Flutter / Dart
+.dart_tool/
+build/
+.packages
+pubspec.lock
