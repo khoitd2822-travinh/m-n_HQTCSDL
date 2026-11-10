@@ -3,9 +3,12 @@ using SmartDroneDelivery.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Cấu hình kết nối PostgreSQL
+// Cấu hình kết nối SQL Server (T-SQL)
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// ĐĂNG KÝ HTTP CLIENT FACTORY ĐỂ GỌI SANG PYTHON AI SERVICE
+builder.Services.AddHttpClient();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

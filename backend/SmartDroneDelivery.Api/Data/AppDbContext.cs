@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using SmartDroneDelivery.Api.Models; // Đảm bảo có using Models nếu cần
+using SmartDroneDelivery.Api.Models;
 
 namespace SmartDroneDelivery.Api.Data
 {
@@ -10,67 +11,75 @@ namespace SmartDroneDelivery.Api.Data
 
         public DbSet<User> Users { get; set; }
         public DbSet<Order> Orders { get; set; }
-        public DbSet<Package> Packages { get; set; }
         public DbSet<LandingStation> LandingStations { get; set; }
         public DbSet<Drone> Drones { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            base.OnModelCreating(modelBuilder);          
-            modelBuilder.Entity<User>().ToTable("users");
-            modelBuilder.Entity<Order>()
-                .Property(o => o.Status)
-                .HasColumnType("order_status");
-            modelBuilder.Entity<Package>().ToTable("packages");
-            modelBuilder.Entity<LandingStation>().ToTable("landing_stations");
-            modelBuilder.Entity<Drone>().ToTable("drones");
+            base.OnModelCreating(modelBuilder);
+            modelBuilder.Entity<Order>().ToTable("Orders");
+            modelBuilder.Entity<LandingStation>().ToTable("Stations");
+            modelBuilder.Entity<Drone>().ToTable("Drones");
         }
     }
 
-    [Table("packages")]
-    public class Package
-    {
-        [Column("id")]
-        public int Id { get; set; }
-        [Column("weight_kg")]
-        public decimal WeightKg { get; set; }
-        [Column("dimensions")]
-        public string Dimensions { get; set; } = string.Empty;
-        [Column("description")]
-        public string Description { get; set; } = string.Empty;
-        [Column("image_url")]
-        public string? ImageUrl { get; set; }
-    }
-
-    [Table("orders")]
+    [Table("Orders")]
     public class Order
     {
-        [Column("id")]
+        [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        [Column("OrderId")]
         public int Id { get; set; }
-        [Column("customer_id")]
-        public int CustomerId { get; set; }
-        [Column("pickup_station_id")]
-        public int PickupStationId { get; set; }
-        [Column("dropoff_station_id")]
-        public int DropoffStationId { get; set; }
-        [Column("status")]
+
+        [Column("TrackingCode")]
+        public string TrackingCode { get; set; } = string.Empty;
+
+        [Column("CustomerId")]
+        public int? CustomerId { get; set; }
+
+        [Column("DepartureStationId")]
+        public int? PickupStationId { get; set; }
+
+        [Column("ArrivalStationId")]
+        public int? DropoffStationId { get; set; }
+
+        [Column("ReceiverName")]
+        public string ReceiverName { get; set; } = string.Empty;
+
+        [Column("ReceiverPhone")]
+        public string ReceiverPhone { get; set; } = string.Empty;
+
+        [Column("ReceiverAddress")]
+        public string ReceiverAddress { get; set; } = string.Empty;
+
+        [Column("PackageWeightKg")]
+        public double PackageWeightKg { get; set; }
+
+        [Column("DeliveryFee", TypeName = "decimal(18,2)")]
+        public decimal DeliveryFee { get; set; }
+
+        [Column("Status")]
         public string Status { get; set; } = "Draft";
-        [Column("estimated_minutes")]
+
+        [Column("CreatedDate")]
+        public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
+
+        // DB không có cột này -> không lưu vào DB
+        [NotMapped]
         public decimal EstimatedMinutes { get; set; }
-        
-        [Column("created_at")]
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
-
-    [Table("drones")]
+    [Table("Drones")]
     public class Drone
     {
-        [Column("id")]
+        [Key]
+        [Column("Id")]
         public int Id { get; set; }
-        [Column("code")]
+
+        [Column("Code")]
         public string Code { get; set; } = string.Empty;
-        [Column("status")]
-        public string Status { get; set; } = string.Empty;
+
+        [Column("Status")]
+        public string Status { get; set; } = "Available";
     }
 }

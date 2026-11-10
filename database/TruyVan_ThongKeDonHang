@@ -1,4 +1,3 @@
-
 USE DroneDeliveryDB;
 GO
 
@@ -43,9 +42,7 @@ GO
 -- 1. STORED PROCEDURES QUAN LY DON HANG
 -- ============================================================
 
-
 -- 1.1. XEM DANH SACH DON HANG
--- Bao gom ten khach hang, tram gui, khoi luong va trang thai
 
 CREATE OR ALTER PROCEDURE dbo.sp_XemDanhSachDonHang
 AS
@@ -65,7 +62,7 @@ BEGIN
         o.Status AS [Trang Thai],
         o.CreatedDate AS [Ngay Tao]
     FROM dbo.Orders AS o
-    INNER JOIN dbo.Users AS c
+    LEFT JOIN dbo.Users AS c
         ON o.CustomerId = c.UserId
     LEFT JOIN dbo.Stations AS s
         ON o.DepartureStationId = s.StationId
@@ -95,7 +92,7 @@ BEGIN
         o.Status AS TrangThai,
         o.CreatedDate AS NgayTao
     FROM dbo.Orders AS o
-    INNER JOIN dbo.Users AS c
+    LEFT JOIN dbo.Users AS c
         ON o.CustomerId = c.UserId
     WHERE o.TrackingCode = @MaVanDon;
 END;
@@ -103,7 +100,6 @@ GO
 
 
 -- 1.3. TIM KIEM DON HANG
--- Tim theo ma van don, ten khach hang hoac dia chi
 
 CREATE OR ALTER PROCEDURE dbo.sp_TimKiemDonHang
     @TuKhoa NVARCHAR(100)
@@ -120,7 +116,7 @@ BEGIN
         o.Status AS TrangThai,
         o.CreatedDate AS NgayTao
     FROM dbo.Orders AS o
-    INNER JOIN dbo.Users AS c
+    LEFT JOIN dbo.Users AS c
         ON o.CustomerId = c.UserId
     WHERE
         o.TrackingCode LIKE N'%' + @TuKhoa + N'%'
@@ -134,7 +130,6 @@ GO
 -- ============================================================
 -- 2. STORED PROCEDURES LICH SU VAN CHUYEN
 -- ============================================================
-
 
 -- 2.1. XEM LICH SU VAN CHUYEN THEO MA VAN DON
 
@@ -163,12 +158,11 @@ GO
 
 
 -- 2.2. CAP NHAT TRANG THAI VA LUU LICH SU
--- Moi lan doi trang thai se them mot dong vao DeliveryHistory
 
 CREATE OR ALTER PROCEDURE dbo.sp_CapNhatTrangThaiDonHang
     @MaVanDon NVARCHAR(50),
     @TrangThaiMoi NVARCHAR(30),
-    @NguoiCapNhatId INT,
+    @NguoiCapNhatId INT = NULL,
     @GhiChu NVARCHAR(255) = NULL
 AS
 BEGIN
@@ -192,24 +186,22 @@ BEGIN
             THROW 50001, N'Khong tim thay don hang.', 1;
         END;
 
-        IF NOT EXISTS
-        (
-            SELECT 1
-            FROM dbo.Users
-            WHERE UserId = @NguoiCapNhatId
-        )
+        IF @NguoiCapNhatId IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM dbo.Users WHERE UserId = @NguoiCapNhatId)
         BEGIN
             THROW 50002, N'Nguoi cap nhat khong ton tai.', 1;
         END;
 
+        -- Danh sach nay phai khop CHECK constraint cua bang Orders
         IF @TrangThaiMoi NOT IN
         (
             N'Pending',
             N'Approved',
-            N'Delivering',
+            N'Rejected',
+            N'Scheduled',
+            N'InTransit',
             N'Completed',
-            N'Failed',
-            N'Cancelled'
+            N'Failed'
         )
         BEGIN
             THROW 50003, N'Trang thai don hang khong hop le.', 1;
@@ -259,20 +251,42 @@ END;
 GO
 
 
+-- 2.3. DUYET DON HANG THEO OrderId (API approve-sp goi procedure nay)
+
+CREATE OR ALTER PROCEDURE dbo.sp_DuyetVaPhanCongDonHang
+    @OrderId INT,
+    @NguoiCapNhatId INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @MaVanDon NVARCHAR(50);
+
+    SELECT @MaVanDon = TrackingCode
+    FROM dbo.Orders
+    WHERE OrderId = @OrderId;
+
+    IF @MaVanDon IS NULL
+        THROW 50001, N'Khong tim thay don hang.', 1;
+
+    EXEC dbo.sp_CapNhatTrangThaiDonHang
+        @MaVanDon = @MaVanDon,
+        @TrangThaiMoi = N'Approved',
+        @NguoiCapNhatId = @NguoiCapNhatId,
+        @GhiChu = N'Duyet don hang qua API';
+END;
+GO
+
+
 -- ============================================================
 -- 3. VIEWS THONG KE DON HANG
 -- ============================================================
-
-
--- 3.1. THONG KE DON HANG THEO TRANG THAI
 
 CREATE OR ALTER VIEW dbo.vw_ThongKeTheoTrangThai
 AS
 SELECT
     Status AS TrangThai,
     COUNT(*) AS TongSoDon,
-
-    -- Tong phi giao hang cua cac don da hoan thanh
     SUM
     (
         CASE
@@ -281,23 +295,17 @@ SELECT
             ELSE 0
         END
     ) AS DoanhThuDonThanhCong
-
 FROM dbo.Orders
 GROUP BY Status;
 GO
 
-
--- 3.2. THONG KE DON HANG VA DOANH THU THEO NGAY TAO
 
 CREATE OR ALTER VIEW dbo.vw_ThongKeDonHangTheoNgay
 AS
 SELECT
     CAST(CreatedDate AS DATE) AS Ngay,
     COUNT(*) AS TongSoDonTrongNgay,
-
-    SUM(COALESCE(DeliveryFee, 0))
-        AS TongPhiGiaoHang,
-
+    SUM(COALESCE(DeliveryFee, 0)) AS TongPhiGiaoHang,
     SUM
     (
         CASE
@@ -306,13 +314,10 @@ SELECT
             ELSE 0
         END
     ) AS DoanhThuDonThanhCong
-
 FROM dbo.Orders
 GROUP BY CAST(CreatedDate AS DATE);
 GO
 
-
--- 3.3. THONG KE SO DON GUI DI TU MOI TRAM
 
 CREATE OR ALTER VIEW dbo.vw_ThongKeDonTheoTram
 AS
@@ -330,31 +335,19 @@ GO
 
 
 -- ============================================================
--- 4. CAC CAU LENH KIEM TRA
--- Chay tung lenh khi can kiem tra ket qua
+-- 4. CAC CAU LENH KIEM TRA (chay tung lenh khi can)
 -- ============================================================
 
--- Xem danh sach don hang
 -- EXEC dbo.sp_XemDanhSachDonHang;
-
--- Xem chi tiet don hang
--- EXEC dbo.sp_XemChiTietDonHang @MaVanDon = N'TRK0001';
-
--- Tim kiem don hang
--- EXEC dbo.sp_TimKiemDonHang @TuKhoa = N'TRK0001';
-
--- Xem lich su van chuyen
--- EXEC dbo.sp_XemLichSuVanChuyen @MaVanDon = N'TRK0001';
-
--- Cap nhat trang thai va luu lich su
--- Thay 1 bang UserId hop le trong database
+-- EXEC dbo.sp_XemChiTietDonHang @MaVanDon = N'DRONE-2026-001';
+-- EXEC dbo.sp_TimKiemDonHang @TuKhoa = N'DRONE-2026-001';
+-- EXEC dbo.sp_XemLichSuVanChuyen @MaVanDon = N'DRONE-2026-001';
 -- EXEC dbo.sp_CapNhatTrangThaiDonHang
---     @MaVanDon = N'TRK0001',
+--     @MaVanDon = N'DRONE-2026-001',
 --     @TrangThaiMoi = N'Approved',
 --     @NguoiCapNhatId = 1,
 --     @GhiChu = N'Don hang da duoc duyet';
-
--- Xem cac view thong ke
+-- EXEC dbo.sp_DuyetVaPhanCongDonHang @OrderId = 101;
 -- SELECT * FROM dbo.vw_ThongKeTheoTrangThai;
 -- SELECT * FROM dbo.vw_ThongKeDonHangTheoNgay;
 -- SELECT * FROM dbo.vw_ThongKeDonTheoTram;

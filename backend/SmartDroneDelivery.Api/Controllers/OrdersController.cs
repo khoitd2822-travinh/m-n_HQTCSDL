@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartDroneDelivery.Api.Data;
+using SmartDroneDelivery.Api.Models;
 
 namespace SmartDroneDelivery.Api.Controllers
 {
@@ -40,6 +41,7 @@ namespace SmartDroneDelivery.Api.Controllers
             return Ok(new { 
                 message = "Tạo đơn hàng thành công!", 
                 orderId = order.Id,
+
                 data = order 
             });
         }

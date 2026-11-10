@@ -1,12 +1,24 @@
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace SmartDroneDelivery.Api.Models
 {
+    [Table("Stations")]
     public class LandingStation
     {
-        public int Id { get; set; }
+        [Key]
+        public int StationId { get; set; }
+
+        [MaxLength(100)]
         public string StationName { get; set; } = string.Empty;
-        public double Latitude { get; set; }  // Vĩ độ
-        public double Longitude { get; set; } // Kinh độ
-        public string Status { get; set; } = "Free"; // "Free" (Trống), "Busy" (Bận), "Maintenance" (Bảo trì)
-        public int Capacity { get; set; } = 5; // Sức chứa drone tối đa tại trạm
+
+        [MaxLength(255)]
+        public string LocationAddress { get; set; } = string.Empty;
+
+        public double Latitude { get; set; }
+        public double Longitude { get; set; }
+
+        [MaxLength(20)]
+        public string Status { get; set; } = string.Empty;
     }
 }
