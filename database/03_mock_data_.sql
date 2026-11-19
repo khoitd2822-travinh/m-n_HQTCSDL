@@ -9,11 +9,17 @@ DELETE FROM Stations;
 DELETE FROM Users;
 GO
 
+DECLARE @pw VARCHAR(64) = CONVERT(VARCHAR(64), HASHBYTES('SHA2_256', '123456'), 2);
+
 SET IDENTITY_INSERT Users ON;
-INSERT INTO Users (UserId, FullName, Email, PhoneNumber, UserRole)
+INSERT INTO Users (UserId, FullName, Email, PhoneNumber, UserRole, PasswordHash)
 VALUES
-(1, N'Nguyễn Văn A', 'khachhang1@gmail.com', '0901234567', 'Customer'),
-(2, N'Trần Thị B', 'khachhang2@gmail.com', '0912345678', 'Customer');
+(1, N'Nguyễn Văn A',      'khachhang1@gmail.com',     '0901234567', 'Customer',         @pw),
+(2, N'Trần Thị B',        'khachhang2@gmail.com',     '0912345678', 'Customer',         @pw),
+(3, N'Điều phối viên',    'dispatcher@smartdrone.vn', '0900000003', 'Dispatcher',       @pw),
+(4, N'Nhân viên trạm',    'operator@smartdrone.vn',   '0900000004', 'StationOperator',  @pw),
+(5, N'Quản lý logistics', 'manager@smartdrone.vn',    '0900000005', 'LogisticsManager', @pw),
+(6, N'Quản trị viên',     'admin@smartdrone.vn',      '0900000006', 'SystemAdmin',      @pw);
 SET IDENTITY_INSERT Users OFF;
 GO
 
@@ -34,7 +40,24 @@ VALUES
 SET IDENTITY_INSERT Orders OFF;
 GO
 
-INSERT INTO Drones (Code, Status) VALUES ('DRONE-01', 'Available'), ('DRONE-02', 'Available');
+INSERT INTO DeliveryHistory (OrderId, OldStatus, NewStatus, UpdatedBy, Note) VALUES
+(101, NULL,      N'Pending',  1, N'Khach tao don'),
+(102, NULL,      N'Pending',  2, N'Khach tao don'),
+(102, N'Pending', N'Approved', 3, N'Dispatcher duyet don');
+GO
+
+SET IDENTITY_INSERT Orders ON;
+INSERT INTO Orders (OrderId, TrackingCode, CustomerId, DepartureStationId, ArrivalStationId, ReceiverName, ReceiverPhone, ReceiverAddress, PackageWeightKg, DeliveryFee, Status, CreatedDate)
+VALUES
+(103, 'DRONE-2026-003', 1, 2, 1, N'Lê Văn C',    '0933333333', N'Cổng chính khuôn viên', 0.8, 20000, 'Completed', DATEADD(DAY, -1, GETDATE())),
+(104, 'DRONE-2026-004', 2, 3, 1, N'Phạm Thị D',  '0944444444', N'Khu thư viện',          3.0, 45000, 'Failed',    DATEADD(DAY, -1, GETDATE())),
+(105, 'DRONE-2026-005', 2, 1, 2, N'Hoàng Văn E', '0955555555', N'KTX Khu B',             1.5, 30000, 'Completed', DATEADD(DAY, -2, GETDATE()));
+SET IDENTITY_INSERT Orders OFF;
+GO
+
+INSERT INTO Drones (Code, Status, BatteryPct, CurrentStationId, Latitude, Longitude) VALUES
+('DRONE-01', 'Available', 95, 1, 10.8411, 106.8099),
+('DRONE-02', 'Available', 88, 2, 10.8783, 106.8064);
 GO
 
 SELECT * FROM Users;

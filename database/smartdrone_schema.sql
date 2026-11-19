@@ -20,6 +20,7 @@ CREATE TABLE Users (
     FullName NVARCHAR(100) NOT NULL,
     Email VARCHAR(100) UNIQUE NOT NULL,
     PhoneNumber VARCHAR(20),
+    PasswordHash VARCHAR(64) NULL,
     UserRole VARCHAR(30) NOT NULL CHECK (UserRole IN ('Customer', 'Dispatcher', 'StationOperator', 'LogisticsManager', 'SystemAdmin')),
     CreatedDate DATETIME DEFAULT GETDATE()
 );
@@ -51,6 +52,20 @@ CREATE TABLE Orders (
 CREATE TABLE Drones (
     Id INT IDENTITY(1,1) PRIMARY KEY,
     Code VARCHAR(50) NOT NULL UNIQUE,
-    Status VARCHAR(30) NOT NULL DEFAULT 'Available'
+    Status VARCHAR(30) NOT NULL DEFAULT 'Available',
+    BatteryPct INT NOT NULL DEFAULT 100,
+    CurrentStationId INT NULL FOREIGN KEY REFERENCES Stations(StationId),
+    Latitude FLOAT NULL,
+    Longitude FLOAT NULL
 );
-GO
+
+CREATE TABLE DeliveryHistory (
+    HistoryId INT IDENTITY(1,1) PRIMARY KEY,
+    OrderId   INT NOT NULL FOREIGN KEY REFERENCES Orders(OrderId),
+    OldStatus NVARCHAR(30) NULL,
+    NewStatus NVARCHAR(30) NOT NULL,
+    UpdatedBy INT NULL FOREIGN KEY REFERENCES Users(UserId),
+    Note      NVARCHAR(255) NULL,
+    UpdatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
+);
+CREATE INDEX IX_DeliveryHistory_OrderId ON DeliveryHistory(OrderId, UpdatedAt);
