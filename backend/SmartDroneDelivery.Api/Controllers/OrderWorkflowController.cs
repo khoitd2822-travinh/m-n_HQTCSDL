@@ -1,88 +1,84 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 using SmartDroneDelivery.Api.Data;
-using System.Text.Json;
-using System.Text;
 
 namespace SmartDroneDelivery.Api.Controllers
 {
     [Route("api/orders")]
     [ApiController]
+    [Authorize]
     public class OrderWorkflowController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly HttpClient _httpClient;
 
-        public OrderWorkflowController(AppDbContext context, IHttpClientFactory httpClientFactory)
+        public OrderWorkflowController(AppDbContext context)
         {
             _context = context;
-            _httpClient = httpClientFactory.CreateClient();
         }
 
-        // 1. Duyệt đơn hàng (Approve) và gọi AI FastAPI lấy ETA
+        // 1. Duyệt đơn (Pending -> Approved)
         [HttpPost("{id}/approve")]
-        public async Task<IActionResult> ApproveOrder(int id, [FromBody] ApproveOrderDto dto)
+        [Authorize(Roles = "Dispatcher,SystemAdmin")]
+        public Task<IActionResult> ApproveOrder(int id)
+            => ChangeStatus(id, new[] { "Pending" }, "Approved",
+                "Duyet don hang", "Đã duyệt đơn hàng.");
+
+        // 2. Từ chối đơn (Pending -> Rejected), có thể kèm lý do
+        [HttpPost("{id}/reject")]
+        [Authorize(Roles = "Dispatcher,SystemAdmin")]
+        public Task<IActionResult> RejectOrder(int id,
+            [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] StatusNoteDto? dto = null)
+            => ChangeStatus(id, new[] { "Pending" }, "Rejected",
+                dto?.Note ?? "Tu choi don hang", "Đã từ chối đơn hàng.");
+
+        // 3. Bắt đầu giao (Approved/Scheduled -> InTransit)
+        [HttpPost("{id}/start")]
+        [Authorize(Roles = "Dispatcher,StationOperator,SystemAdmin")]
+        public Task<IActionResult> StartDelivery(int id)
+            => ChangeStatus(id, new[] { "Approved", "Scheduled" }, "InTransit",
+                "Drone bat dau giao hang", "Drone đã xuất phát.");
+
+        // 4. Giao thất bại (-> Failed)
+        [HttpPost("{id}/fail")]
+        [Authorize(Roles = "Dispatcher,StationOperator,SystemAdmin")]
+        public Task<IActionResult> HandleFailedDelivery(int id,
+            [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] StatusNoteDto? dto = null)
+            => ChangeStatus(id, new[] { "Approved", "Scheduled", "InTransit" }, "Failed",
+                dto?.Note ?? "Giao hang that bai", "Đã ghi nhận giao hàng thất bại.");
+
+        private async Task<IActionResult> ChangeStatus(
+            int id, string[] allowedFrom, string newStatus, string note, string okMessage)
         {
             var order = await _context.Orders.FindAsync(id);
-            if (order == null) return NotFound(new { message = "Không tìm thấy đơn hàng." });
+            if (order == null)
+                return NotFound(new { message = "Không tìm thấy đơn hàng." });
 
-            // Gọi sang Python FastAPI AI Service (chạy ở cổng 8000) để lấy thời gian ETA dự kiến
+            if (!allowedFrom.Contains(order.Status))
+                return BadRequest(new
+                {
+                    message = $"Đơn đang ở trạng thái {order.Status}, không thể chuyển sang {newStatus}."
+                });
+
+            var userId = User.GetUserId();
             try
             {
-                var aiPayload = new { distance = dto.Distance, weight = 1.5, weather = "Clear" };
-                var content = new StringContent(JsonSerializer.Serialize(aiPayload), Encoding.UTF8, "application/json");
-                
-                var aiResponse = await _httpClient.PostAsync("http://localhost:8000/api/ai/eta", content);
-                if (aiResponse.IsSuccessStatusCode)
-                {
-                    var jsonResult = await aiResponse.Content.ReadAsStringAsync();
-                    // Xử lý dữ liệu ETA trả về từ AI nếu cần
-                }
+                await _context.Database.ExecuteSqlInterpolatedAsync(
+                    $"EXEC dbo.sp_CapNhatTrangThaiDonHang @MaVanDon = {order.TrackingCode}, @TrangThaiMoi = {newStatus}, @NguoiCapNhatId = {userId}, @GhiChu = {note}");
             }
-            catch 
+            catch (Exception ex)
             {
-                // Fallback nếu AI service chưa bật: hệ thống vẫn hoạt động bình thường
+                return BadRequest(new { message = "Không đổi được trạng thái.", error = ex.Message });
             }
 
-            order.Status = "Approved";
-            // order.StationId = dto.StationId;
-            // order.ScheduledTime = dto.ScheduledTime;
-
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Đã duyệt đơn hàng và gán lịch giao thành công.", order });
-        }
-
-        // 2. Từ chối đơn hàng (Reject)
-        [HttpPost("{id}/reject")]
-        public async Task<IActionResult> RejectOrder(int id)
-        {
-            var order = await _context.Orders.FindAsync(id);
-            if (order == null) return NotFound(new { message = "Không tìm thấy đơn hàng." });
-
-            order.Status = "Rejected";
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Đã từ chối đơn hàng.", order });
-        }
-
-        // 3. Xử lý giao hàng thất bại (Handle failed deliveries)
-        [HttpPost("{id}/fail")]
-        public async Task<IActionResult> HandleFailedDelivery(int id)
-        {
-            var order = await _context.Orders.FindAsync(id);
-            if (order == null) return NotFound(new { message = "Không tìm thấy đơn hàng." });
-
-            order.Status = "Failed";
-            await _context.SaveChangesAsync();
-
-            return Ok(new { message = "Đã ghi nhận trạng thái giao hàng thất bại.", order });
+            await _context.Entry(order).ReloadAsync();
+            return Ok(new { message = okMessage, order });
         }
     }
 
-    public class ApproveOrderDto
+    public class StatusNoteDto
     {
-        public int StationId { get; set; }
-        public double Distance { get; set; }
-        public DateTime ScheduledTime { get; set; }
+        public string? Note { get; set; }
     }
 }

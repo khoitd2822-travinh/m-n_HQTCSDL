@@ -46,6 +46,10 @@ CREATE TABLE Orders (
     PackageWeightKg FLOAT NOT NULL,
     DeliveryFee DECIMAL(18,2) NOT NULL,
     Status VARCHAR(30) NOT NULL CHECK (Status IN ('Pending', 'Approved', 'Rejected', 'Scheduled', 'InTransit', 'Completed', 'Failed')) DEFAULT 'Pending',
+        EstimatedMinutes INT NULL,
+    OtpCode VARCHAR(6) NOT NULL
+        DEFAULT RIGHT('000000' + CAST(ABS(CHECKSUM(NEWID())) % 1000000 AS VARCHAR(6)), 6),
+    
     CreatedDate DATETIME DEFAULT GETDATE()
 );
 

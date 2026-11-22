@@ -1,37 +1,71 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-void main() {
-  runApp(const SmartDroneCustomerApp());
+void main() => runApp(const DroneApp());
+
+class ApiConfig {
+  // Chạy Chrome/Desktop: giữ localhost. Chạy Android Emulator: đổi thành 10.0.2.2
+  static const String backend = 'http://localhost:5139';
+  static const String ai = 'http://localhost:8000';
 }
 
-class SmartDroneCustomerApp extends StatelessWidget {
-  const SmartDroneCustomerApp({super.key});
+const statusVi = {
+  'Pending': 'Chờ duyệt',
+  'Approved': 'Đã duyệt',
+  'Rejected': 'Từ chối',
+  'Scheduled': 'Đã xếp lịch',
+  'InTransit': 'Đang giao',
+  'Completed': 'Hoàn tất',
+  'Failed': 'Thất bại',
+};
+
+Color statusColor(String s) {
+  switch (s) {
+    case 'Completed':
+      return const Color(0xFF34D399);
+    case 'Rejected':
+    case 'Failed':
+      return const Color(0xFFF87171);
+    case 'Pending':
+      return const Color(0xFFFBBF24);
+    default:
+      return const Color(0xFF38BDF8);
+  }
+}
+
+class Session {
+  final String token;
+  final String name;
+  Session(this.token, this.name);
+  Map<String, String> get headers => {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+}
+
+class DroneApp extends StatelessWidget {
+  const DroneApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SmartDrone Customer',
+      title: 'SmartDrone',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF0EA5E9),
           brightness: Brightness.dark,
         ),
-        scaffoldBackgroundColor: const Color(0xFF0B1220),
+        scaffoldBackgroundColor: const Color(0xFF0A1424),
       ),
       home: const LoginScreen(),
     );
   }
 }
 
-class ApiConfig {
-  // Dùng localhost:5139 khi chạy Chrome/Desktop; đổi thành 10.0.2.2:5139 nếu chạy Android Emulator
-  static const String backendBaseUrl = 'http://localhost:5139';
-  static const String aiBaseUrl = 'http://localhost:8000';
-}
-
+// ---------------------------------------------------------------- Đăng nhập
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -40,8 +74,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _userCtrl = TextEditingController(text: 'admin');
-  final _passCtrl = TextEditingController(text: '123');
+  final _email = TextEditingController(text: 'khachhang1@gmail.com');
+  final _pass = TextEditingController(text: '123456');
   bool _loading = false;
   String? _error;
 
@@ -50,35 +84,30 @@ class _LoginScreenState extends State<LoginScreen> {
       _loading = true;
       _error = null;
     });
-
     try {
       final res = await http.post(
-        Uri.parse('${ApiConfig.backendBaseUrl}/api/Auth/login'),
+        Uri.parse('${ApiConfig.backend}/api/Auth/login'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'username': _userCtrl.text.trim(),
-          'password': _passCtrl.text.trim(),
-        }),
+        body: jsonEncode({'email': _email.text.trim(), 'password': _pass.text}),
       );
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final token = (data['token'] ?? data['accessToken'] ?? '').toString();
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => HomeScreen(
-              username: _userCtrl.text.trim(),
-              token: token,
-            ),
-          ),
-        );
-      } else {
-        setState(() => _error = 'Đăng nhập thất bại (${res.statusCode}): kiểm tra tài khoản/mật khẩu.');
+      final data = jsonDecode(res.body);
+      if (res.statusCode != 200) {
+        setState(() => _error = (data['message'] ?? 'Đăng nhập thất bại (${res.statusCode}).').toString());
+        return;
       }
-    } catch (e) {
-      setState(() => _error = 'Không kết nối được Backend (${ApiConfig.backendBaseUrl}): $e');
+      if (data['role'] != 'Customer') {
+        setState(() => _error = 'Ứng dụng này dành cho khách hàng. Vai trò ${data['role']} hãy dùng trang web.');
+        return;
+      }
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HomeScreen(Session(data['token'].toString(), data['fullName'].toString())),
+        ),
+      );
+    } catch (_) {
+      setState(() => _error = 'Không kết nối được backend (${ApiConfig.backend}). Hãy kiểm tra backend đang chạy.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -89,56 +118,40 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: const BoxConstraints(maxWidth: 400),
           child: Card(
-            color: const Color(0xFF111C33),
             margin: const EdgeInsets.all(20),
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.flight_takeoff, size: 48, color: Color(0xFF38BDF8)),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'SmartDrone Customer',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
+                  const Text('SmartDrone', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  const Text('Gửi hàng bằng drone giữa các trạm'),
                   const SizedBox(height: 20),
                   TextField(
-                    controller: _userCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Tài khoản',
-                      border: OutlineInputBorder(),
-                    ),
+                    controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
                   TextField(
-                    controller: _passCtrl,
+                    controller: _pass,
                     obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Mật khẩu',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'Mật khẩu', border: OutlineInputBorder()),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),
                     Text(_error!, style: const TextStyle(color: Colors.redAccent)),
                   ],
                   const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 46,
-                    child: FilledButton(
-                      onPressed: _loading ? null : _login,
-                      child: _loading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Đăng nhập'),
-                    ),
+                  FilledButton(
+                    onPressed: _loading ? null : _login,
+                    child: _loading
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Đăng nhập'),
                   ),
                 ],
               ),
@@ -150,250 +163,396 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+// ---------------------------------------------------------------- Màn hình chính
 class HomeScreen extends StatefulWidget {
-  final String username;
-  final String token;
-
-  const HomeScreen({super.key, required this.username, required this.token});
+  final Session session;
+  const HomeScreen(this.session, {super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _tabIndex = 0;
-
-  Map<String, String> get _authHeaders => {
-        'Content-Type': 'application/json',
-        if (widget.token.isNotEmpty) 'Authorization': 'Bearer ${widget.token}',
-      };
-
-  // Tab 1: Danh sách đơn hàng
+  int _tab = 0;
   List<dynamic> _orders = [];
-  bool _loadingOrders = false;
-  String _orderStatusMsg = '';
+  List<dynamic> _stations = [];
+  String? _error;
+  Timer? _timer;
 
-  // Tab 2: Ước lượng ETA AI
-  final _distanceCtrl = TextEditingController(text: '3.5');
-  final _weightCtrl = TextEditingController(text: '1.2');
-  String _etaResult = 'Nhập thông số và bấm ước lượng thời gian giao.';
-
-  // Tab 3: Chatbot AI
-  final _chatCtrl = TextEditingController(text: 'Đơn hàng của tôi bao lâu tới nơi?');
-  String _chatReply = 'Xin chào! Tôi là trợ lý giao hàng SmartDrone.';
+  Session get s => widget.session;
 
   @override
   void initState() {
     super.initState();
-    _fetchOrders();
+    _loadStations();
+    _loadOrders();
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _loadOrders());
   }
 
-  Future<void> _fetchOrders() async {
-    setState(() {
-      _loadingOrders = true;
-      _orderStatusMsg = '';
-    });
-
-    // Thử lần lượt các endpoint đơn hàng phổ biến trong backend
-    final candidatePaths = ['/api/Orders', '/api/SmartDroneOrder'];
-    for (final path in candidatePaths) {
-      try {
-        final res = await http.get(
-          Uri.parse('${ApiConfig.backendBaseUrl}$path'),
-          headers: _authHeaders,
-        );
-        if (res.statusCode == 200) {
-          final decoded = jsonDecode(res.body);
-          setState(() {
-            _orders = decoded is List ? decoded : (decoded['items'] ?? decoded['data'] ?? []);
-            _loadingOrders = false;
-          });
-          return;
-        }
-      } catch (_) {}
-    }
-
-    setState(() {
-      _loadingOrders = false;
-      _orderStatusMsg = 'Chưa tải được danh sách đơn (kiểm tra route /api/Orders hoặc CORS trên backend).';
-    });
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
-  Future<void> _estimateEta() async {
+  Future<void> _loadOrders() async {
     try {
-      final res = await http.post(
-        Uri.parse('${ApiConfig.aiBaseUrl}/ai/eta'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'distance_km': double.tryParse(_distanceCtrl.text) ?? 3.0,
-          'package_weight_kg': double.tryParse(_weightCtrl.text) ?? 1.0,
-          'drone_battery_pct': 85,
-          'weather_delay_min': 0,
-          'station_delay_min': 2,
-        }),
-      );
+      final res = await http.get(Uri.parse('${ApiConfig.backend}/api/Orders/mine'), headers: s.headers);
+      if (!mounted) return;
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
         setState(() {
-          _etaResult = 'Thời gian dự kiến: ${data['estimated_minutes']} phút\n'
-              'Tốc độ ước tính: ${data['estimated_speed_kmh'] ?? 45} km/h';
+          _orders = jsonDecode(res.body) as List<dynamic>;
+          _error = null;
         });
       } else {
-        setState(() => _etaResult = 'Lỗi AI Service (${res.statusCode})');
+        setState(() => _error = 'Không tải được đơn hàng (${res.statusCode}).');
       }
-    } catch (e) {
-      setState(() => _etaResult = 'Không gọi được AI Service: $e');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Không kết nối được backend.');
     }
   }
 
-  Future<void> _sendChat() async {
+  Future<void> _loadStations() async {
+    try {
+      final res = await http.get(Uri.parse('${ApiConfig.backend}/api/Stations'), headers: s.headers);
+      if (res.statusCode == 200 && mounted) {
+        setState(() => _stations = jsonDecode(res.body) as List<dynamic>);
+      }
+    } catch (_) {}
+  }
+
+  Widget _ordersPage() {
+    return RefreshIndicator(
+      onRefresh: _loadOrders,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(_error!, style: const TextStyle(color: Colors.amber)),
+            ),
+          if (_orders.isEmpty && _error == null)
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.inventory_2_outlined),
+                title: Text('Chưa có đơn hàng nào'),
+                subtitle: Text('Mở tab Tạo đơn để gửi đơn đầu tiên.'),
+              ),
+            ),
+          ..._orders.map((o) => _orderCard(o as Map<String, dynamic>)),
+        ],
+      ),
+    );
+  }
+
+  Widget _orderCard(Map<String, dynamic> o) {
+    final status = (o['trangThai'] ?? '').toString();
+    final eta = o['thoiGianDuKienPhut'];
+    final otp = (o['maOtp'] ?? '').toString();
+    final active = status != 'Completed' && status != 'Failed' && status != 'Rejected';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text((o['maVanDon'] ?? '').toString(),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ),
+                Chip(
+                  label: Text(statusVi[status] ?? status),
+                  side: BorderSide(color: statusColor(status)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text('Người nhận: ${o['tenNguoiNhan']}'),
+            Text('Địa chỉ: ${o['diaChiGiao']}'),
+            Text('Phí giao: ${o['phiGiaoHang']} đ  |  ${o['khoiLuongKg']} kg'),
+            if (eta != null) Text('Dự kiến: $eta phút'),
+            if (otp.isNotEmpty && active) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFF38BDF8)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.vpn_key, size: 18),
+                    const SizedBox(width: 8),
+                    const Expanded(child: Text('Mã OTP, đọc cho nhân viên trạm khi nhận hàng')),
+                    Text(otp, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 3)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = _orders.isNotEmpty ? _orders.first as Map<String, dynamic> : null;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('SmartDrone  ${s.name}'),
+        actions: [
+          IconButton(
+            tooltip: 'Đăng xuất',
+            icon: const Icon(Icons.logout),
+            onPressed: () => Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+            ),
+          ),
+        ],
+      ),
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          _ordersPage(),
+          CreateOrderPage(
+            session: s,
+            stations: _stations,
+            onCreated: () {
+              _loadOrders();
+              setState(() => _tab = 0);
+            },
+          ),
+          ChatPage(
+            status: latest?['trangThai']?.toString(),
+            eta: latest?['thoiGianDuKienPhut'] as int?,
+          ),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() => _tab = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.list_alt), label: 'Đơn hàng'),
+          NavigationDestination(icon: Icon(Icons.add_box_outlined), label: 'Tạo đơn'),
+          NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Trợ lý AI'),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- Tạo đơn
+class CreateOrderPage extends StatefulWidget {
+  final Session session;
+  final List<dynamic> stations;
+  final VoidCallback onCreated;
+  const CreateOrderPage({super.key, required this.session, required this.stations, required this.onCreated});
+
+  @override
+  State<CreateOrderPage> createState() => _CreateOrderPageState();
+}
+
+class _CreateOrderPageState extends State<CreateOrderPage> {
+  int? _from;
+  int? _to;
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  final _addr = TextEditingController();
+  final _weight = TextEditingController(text: '1.0');
+  bool _busy = false;
+  String? _error;
+
+  int _sid(dynamic st) => (st['id'] ?? st['stationId']) as int;
+  String _sname(dynamic st) => (st['stationName'] ?? st['name'] ?? 'Trạm').toString();
+
+  List<DropdownMenuItem<int>> get _items =>
+      widget.stations.map((st) => DropdownMenuItem<int>(value: _sid(st), child: Text(_sname(st)))).toList();
+
+  Future<void> _submit() async {
+    if (_from == null || _to == null) {
+      setState(() => _error = 'Hãy chọn trạm gửi và trạm nhận.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       final res = await http.post(
-        Uri.parse('${ApiConfig.aiBaseUrl}/ai/chat'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse('${ApiConfig.backend}/api/SmartDroneOrder/create'),
+        headers: widget.session.headers,
         body: jsonEncode({
-          'message': _chatCtrl.text.trim(),
-          'order_status': 'In-Transit',
-          'estimated_minutes': 12,
+          'pickupStationId': _from,
+          'dropoffStationId': _to,
+          'receiverName': _name.text.trim(),
+          'receiverPhone': _phone.text.trim(),
+          'receiverAddress': _addr.text.trim(),
+          'packageWeightKg': double.tryParse(_weight.text.replaceAll(',', '.')) ?? 0,
         }),
       );
+      final data = jsonDecode(res.body);
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        setState(() => _chatReply = (data['reply'] ?? data.toString()).toString());
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Đã tạo đơn ${data['trackingCode']}: phí ${data['deliveryFee']} đ, dự kiến ${data['estimatedMinutes']} phút.'),
+        ));
+        _name.clear();
+        _phone.clear();
+        _addr.clear();
+        widget.onCreated();
       } else {
-        setState(() => _chatReply = 'Lỗi Chatbot (${res.statusCode})');
+        setState(() => _error = (data['message'] ?? 'Không tạo được đơn (${res.statusCode}).').toString());
       }
-    } catch (e) {
-      setState(() => _chatReply = 'Không kết nối được AI Service: $e');
+    } catch (_) {
+      setState(() => _error = 'Không kết nối được backend.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      // Trang 1: Đơn hàng
-      RefreshIndicator(
-        onRefresh: _fetchOrders,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Đơn hàng của bạn', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                IconButton(onPressed: _fetchOrders, icon: const Icon(Icons.refresh)),
-              ],
-            ),
-            if (_loadingOrders) const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())),
-            if (_orderStatusMsg.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(_orderStatusMsg, style: const TextStyle(color: Colors.amber)),
-              ),
-            if (!_loadingOrders && _orders.isEmpty)
-              const Card(
-                child: ListTile(
-                  leading: Icon(Icons.inventory_2_outlined),
-                  title: Text('Chưa có đơn hàng nào'),
-                  subtitle: Text('Tạo đơn từ Web Dashboard hoặc Swagger rồi bấm làm mới.'),
-                ),
-              ),
-            ..._orders.map((item) {
-              final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
-              final code = map['orderCode'] ?? map['code'] ?? 'ORD-${map['id'] ?? ''}';
-              final status = map['status'] ?? 'Pending';
-              return Card(
-                child: ListTile(
-                  leading: const Icon(Icons.local_shipping, color: Color(0xFF38BDF8)),
-                  title: Text(code.toString()),
-                  subtitle: Text('Trạng thái: $status'),
-                ),
-              );
-            }),
-          ],
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text('Tạo đơn mới', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<int>(
+          initialValue: _from,
+          items: _items,
+          onChanged: (v) => setState(() => _from = v),
+          decoration: const InputDecoration(labelText: 'Trạm gửi', border: OutlineInputBorder()),
         ),
-      ),
-
-      // Trang 2: AI ETA
-      Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Ước lượng thời gian giao (AI ETA)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _distanceCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Khoảng cách (km)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _weightCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Khối lượng kiện hàng (kg)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _estimateEta,
-              icon: const Icon(Icons.speed),
-              label: const Text('Tính ETA bằng AI'),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(_etaResult, style: const TextStyle(fontSize: 16)),
-              ),
-            ),
-          ],
+        const SizedBox(height: 12),
+        DropdownButtonFormField<int>(
+          initialValue: _to,
+          items: _items,
+          onChanged: (v) => setState(() => _to = v),
+          decoration: const InputDecoration(labelText: 'Trạm nhận', border: OutlineInputBorder()),
         ),
-      ),
+        const SizedBox(height: 12),
+        TextField(controller: _name, decoration: const InputDecoration(labelText: 'Tên người nhận', border: OutlineInputBorder())),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _phone,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(labelText: 'Số điện thoại người nhận', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 12),
+        TextField(controller: _addr, decoration: const InputDecoration(labelText: 'Địa chỉ nhận', border: OutlineInputBorder())),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _weight,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(labelText: 'Khối lượng (kg, tối đa 5)', border: OutlineInputBorder()),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+        ],
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          onPressed: _busy ? null : _submit,
+          icon: const Icon(Icons.send),
+          label: Text(_busy ? 'Đang tạo đơn...' : 'Tạo đơn'),
+        ),
+      ],
+    );
+  }
+}
 
-      // Trang 3: Chatbot AI
-      Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Trợ lý AI Khách hàng', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Expanded(
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: SingleChildScrollView(child: Text(_chatReply, style: const TextStyle(fontSize: 16))),
+// ---------------------------------------------------------------- Trợ lý AI
+class ChatPage extends StatefulWidget {
+  final String? status;
+  final int? eta;
+  const ChatPage({super.key, this.status, this.eta});
+
+  @override
+  State<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends State<ChatPage> {
+  final _ctrl = TextEditingController();
+  final List<({bool mine, String text})> _msgs = [
+    (mine: false, text: 'Xin chào! Tôi là trợ lý giao hàng SmartDrone. Bạn cần hỏi gì về đơn hàng?'),
+  ];
+  bool _busy = false;
+
+  Future<void> _send() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty || _busy) return;
+    setState(() {
+      _msgs.add((mine: true, text: text));
+      _ctrl.clear();
+      _busy = true;
+    });
+    String reply;
+    try {
+      final res = await http.post(
+        Uri.parse('${ApiConfig.ai}/ai/chat'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'message': text,
+          'order_status': widget.status ?? 'Pending',
+          'estimated_minutes': widget.eta ?? 10,
+        }),
+      );
+      reply = res.statusCode == 200
+          ? (jsonDecode(res.body)['reply'] ?? res.body).toString()
+          : 'Trợ lý AI đang gặp lỗi (${res.statusCode}).';
+    } catch (_) {
+      reply = 'Không kết nối được dịch vụ AI (${ApiConfig.ai}). Hãy bật AI service.';
+    }
+    if (!mounted) return;
+    setState(() {
+      _msgs.add((mine: false, text: reply));
+      _busy = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              children: _msgs
+                  .map((m) => Align(
+                        alignment: m.mine ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(12),
+                          constraints: const BoxConstraints(maxWidth: 320),
+                          decoration: BoxDecoration(
+                            color: m.mine ? const Color(0xFF0C4A6E) : const Color(0xFF14233D),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(m.text),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _ctrl,
+                  onSubmitted: (_) => _send(),
+                  decoration: const InputDecoration(hintText: 'Hỏi về đơn hàng của bạn', border: OutlineInputBorder()),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _chatCtrl,
-                    decoration: const InputDecoration(hintText: 'Nhập câu hỏi...', border: OutlineInputBorder()),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(onPressed: _sendChat, icon: const Icon(Icons.send)),
-              ],
-            ),
-          ],
-        ),
-      ),
-    ];
-
-    return Scaffold(
-      appBar: AppBar(title: Text('SmartDrone • ${widget.username}')),
-      body: pages[_tabIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tabIndex,
-        onDestinationSelected: (i) => setState(() => _tabIndex = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.list_alt), label: 'Đơn hàng'),
-          NavigationDestination(icon: Icon(Icons.timer), label: 'AI ETA'),
-          NavigationDestination(icon: Icon(Icons.chat), label: 'AI Chat'),
+              const SizedBox(width: 8),
+              IconButton.filled(onPressed: _busy ? null : _send, icon: const Icon(Icons.send)),
+            ],
+          ),
         ],
       ),
     );

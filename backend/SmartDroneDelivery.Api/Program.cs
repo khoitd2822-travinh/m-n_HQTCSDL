@@ -32,9 +32,9 @@ builder.Services.AddCors(options =>
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("CustomerPolicy", policy => policy.RequireRole("Customer"));
-    options.AddPolicy("DispatcherPolicy", policy => policy.RequireRole("Dispatcher", "Admin"));
-    options.AddPolicy("OperatorPolicy", policy => policy.RequireRole("StationOperator", "Admin"));
-    options.AddPolicy("LogisticsManagerPolicy", policy => policy.RequireRole("LogisticsManager", "Admin"));
+    options.AddPolicy("DispatcherPolicy", policy => policy.RequireRole("Dispatcher", "SystemAdmin"));
+    options.AddPolicy("OperatorPolicy", policy => policy.RequireRole("StationOperator", "SystemAdmin"));
+    options.AddPolicy("LogisticsManagerPolicy", policy => policy.RequireRole("LogisticsManager", "SystemAdmin"));
 });
 
 var jwtKey = builder.Configuration["Jwt:Key"]!;
@@ -53,7 +53,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
 
 var app = builder.Build();
 

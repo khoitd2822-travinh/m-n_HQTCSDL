@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartDroneDelivery.Api.Data;
@@ -7,6 +8,7 @@ namespace SmartDroneDelivery.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class OrdersController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -16,34 +18,39 @@ namespace SmartDroneDelivery.Api.Controllers
             _context = context;
         }
 
-        // GET /api/orders: Lấy danh sách toàn bộ đơn hàng
+        // Nhân viên xem toàn bộ đơn hàng
         [HttpGet]
+        [Authorize(Roles = "Dispatcher,StationOperator,LogisticsManager,SystemAdmin")]
         public async Task<IActionResult> GetOrders()
         {
             var orders = await _context.Orders.OrderByDescending(o => o.CreatedAt).ToListAsync();
             return Ok(orders);
         }
 
-        // POST /api/orders: Tạo đơn hàng mới từ phía Client/Mobile
-        [HttpPost]
-        public async Task<IActionResult> CreateOrder([FromBody] Order order)
+        // Khách xem đơn của chính mình (kèm mã OTP để đọc cho nhân viên trạm)
+        [HttpGet("mine")]
+        [Authorize(Roles = "Customer")]
+        public async Task<IActionResult> GetMyOrders()
         {
-            // Thiết lập giá trị mặc định khi tạo mới
-            order.CreatedAt = DateTime.UtcNow;
-            if (string.IsNullOrEmpty(order.Status))
-            {
-                order.Status = "Pending";
-            }
-
-            _context.Orders.Add(order);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { 
-                message = "Tạo đơn hàng thành công!", 
-                orderId = order.Id,
-
-                data = order 
-            });
+            var userId = User.GetUserId();
+            var data = await _context.Database
+                .SqlQuery<MyOrderDto>($"EXEC dbo.sp_XemDonHangCuaKhach @CustomerId = {userId}")
+                .ToListAsync();
+            return Ok(data);
         }
+    }
+
+    public class MyOrderDto
+    {
+        public int MaDon { get; set; }
+        public string MaVanDon { get; set; } = string.Empty;
+        public string TenNguoiNhan { get; set; } = string.Empty;
+        public string DiaChiGiao { get; set; } = string.Empty;
+        public double KhoiLuongKg { get; set; }
+        public decimal PhiGiaoHang { get; set; }
+        public string TrangThai { get; set; } = string.Empty;
+        public int? ThoiGianDuKienPhut { get; set; }
+        public string MaOtp { get; set; } = string.Empty;
+        public DateTime NgayTao { get; set; }
     }
 }
