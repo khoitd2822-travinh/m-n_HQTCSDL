@@ -48,6 +48,22 @@ namespace SmartDroneDelivery.Api.Controllers
             => ChangeStatus(id, new[] { "Approved", "Scheduled", "InTransit" }, "Failed",
                 dto?.Note ?? "Giao hang that bai", "Đã ghi nhận giao hàng thất bại.");
 
+        // 5. Khách tự hủy đơn của mình khi đang Chờ duyệt
+        [HttpPost("{id}/cancel")]
+        [Authorize(Roles = "Customer")]
+        public async Task<IActionResult> CancelOrder(int id)
+        {
+            var userId = User.GetUserId();
+            var mine = await _context.Database
+                .SqlQuery<MyOrderDto>($"EXEC dbo.sp_XemDonHangCuaKhach @CustomerId = {userId}")
+                .ToListAsync();
+            if (!mine.Any(m => m.MaDon == id))
+                return NotFound(new { message = "Không tìm thấy đơn hàng của bạn." });
+
+            return await ChangeStatus(id, new[] { "Pending" }, "Cancelled",
+                "Khach huy don", "Đã hủy đơn hàng.");
+        }
+
         private async Task<IActionResult> ChangeStatus(
             int id, string[] allowedFrom, string newStatus, string note, string okMessage)
         {

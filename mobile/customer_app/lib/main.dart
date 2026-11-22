@@ -9,6 +9,8 @@ class ApiConfig {
   // Chạy Chrome/Desktop: giữ localhost. Chạy Android Emulator: đổi thành 10.0.2.2
   static const String backend = 'http://localhost:5139';
   static const String ai = 'http://localhost:8000';
+  // Đường dẫn API hủy đơn. Nếu backend của bạn đặt tên khác thì chỉ cần sửa dòng này.
+  static String cancelPath(int id) => '/api/orders/$id/cancel';
 }
 
 const statusVi = {
@@ -19,19 +21,24 @@ const statusVi = {
   'InTransit': 'Đang giao',
   'Completed': 'Hoàn tất',
   'Failed': 'Thất bại',
+  'Cancelled': 'Đã hủy',
 };
 
 Color statusColor(String s) {
   switch (s) {
     case 'Completed':
-      return const Color(0xFF34D399);
+      return const Color(0xFF15803D);
     case 'Rejected':
     case 'Failed':
-      return const Color(0xFFF87171);
+      return const Color(0xFFB91C1C);
+    case 'Cancelled':
+      return const Color(0xFF6B7280);
+    case 'InTransit':
+      return const Color(0xFF1D4ED8);
     case 'Pending':
-      return const Color(0xFFFBBF24);
+      return const Color(0xFFB45309);
     default:
-      return const Color(0xFF38BDF8);
+      return const Color(0xFF087E8B);
   }
 }
 
@@ -50,15 +57,46 @@ class DroneApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const navy = Color(0xFF152238);
+    const canvas = Color(0xFFF4F7FB);
     return MaterialApp(
       title: 'SmartDrone',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0EA5E9),
-          brightness: Brightness.dark,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF087E8B)),
+        scaffoldBackgroundColor: canvas,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: canvas,
+          foregroundColor: navy,
+          toolbarHeight: 72,
+          titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: navy),
         ),
-        scaffoldBackgroundColor: const Color(0xFF0A1424),
+        inputDecorationTheme: const InputDecorationTheme(
+          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(64, 58),
+            textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          height: 84,
+          labelTextStyle: WidgetStatePropertyAll(TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        ),
+      ),
+      builder: (context, child) => ColoredBox(
+        color: canvas,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 2200),
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.45)),
+              child: child!,
+            ),
+          ),
+        ),
       ),
       home: const LoginScreen(),
     );
@@ -118,29 +156,31 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
+          constraints: const BoxConstraints(maxWidth: 900),
           child: Card(
             margin: const EdgeInsets.all(20),
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(64),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('SmartDrone', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+                  const Text('SmartDrone', style: TextStyle(fontSize: 54, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  const Text('Gửi hàng bằng drone giữa các trạm'),
+                  const Text('Gửi hàng bằng drone giữa các trạm', style: TextStyle(fontSize: 26)),
                   const SizedBox(height: 20),
                   TextField(
                     controller: _email,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                    style: const TextStyle(fontSize: 26),
+                    decoration: const InputDecoration(labelText: 'Email', labelStyle: TextStyle(fontSize: 22), border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _pass,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Mật khẩu', border: OutlineInputBorder()),
+                    style: const TextStyle(fontSize: 26),
+                    decoration: const InputDecoration(labelText: 'Mật khẩu', labelStyle: TextStyle(fontSize: 22), border: OutlineInputBorder()),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),
@@ -221,6 +261,42 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
+  Future<void> _cancel(int id, String code) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Hủy đơn hàng?'),
+        content: Text('Bạn muốn hủy đơn $code?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Không')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Hủy đơn')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final res = await http.post(
+        Uri.parse('${ApiConfig.backend}${ApiConfig.cancelPath(id)}'),
+        headers: s.headers,
+      );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã hủy đơn hàng.')));
+        _loadOrders();
+      } else {
+        var m = 'Không hủy được đơn (${res.statusCode}).';
+        try {
+          m = (jsonDecode(res.body)['message'] ?? m).toString();
+        } catch (_) {}
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không kết nối được backend.')));
+      }
+    }
+  }
+
   Widget _ordersPage() {
     return RefreshIndicator(
       onRefresh: _loadOrders,
@@ -230,7 +306,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: Text(_error!, style: const TextStyle(color: Colors.amber)),
+              child: Text(_error!, style: const TextStyle(color: Colors.deepOrange)),
             ),
           if (_orders.isEmpty && _error == null)
             const Card(
@@ -250,7 +326,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final status = (o['trangThai'] ?? '').toString();
     final eta = o['thoiGianDuKienPhut'];
     final otp = (o['maOtp'] ?? '').toString();
-    final active = status != 'Completed' && status != 'Failed' && status != 'Rejected';
+    final active = status != 'Completed' && status != 'Failed' && status != 'Rejected' && status != 'Cancelled';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -264,8 +340,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
                 Chip(
-                  label: Text(statusVi[status] ?? status),
-                  side: BorderSide(color: statusColor(status)),
+                  backgroundColor: Colors.white,
+                  label: Text(
+                    statusVi[status] ?? status,
+                    style: TextStyle(color: statusColor(status), fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                  side: BorderSide(color: statusColor(status), width: 2),
                 ),
               ],
             ),
@@ -274,12 +354,20 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('Địa chỉ: ${o['diaChiGiao']}'),
             Text('Phí giao: ${o['phiGiaoHang']} đ  |  ${o['khoiLuongKg']} kg'),
             if (eta != null) Text('Dự kiến: $eta phút'),
+            if (status == 'Pending') ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => _cancel(o['maDon'] as int, (o['maVanDon'] ?? '').toString()),
+                icon: const Icon(Icons.cancel_outlined),
+                label: const Text('Hủy đơn'),
+              ),
+            ],
             if (otp.isNotEmpty && active) ...[
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFF38BDF8)),
+                  border: Border.all(color: const Color(0xFF087E8B), width: 2),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -302,44 +390,62 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final latest = _orders.isNotEmpty ? _orders.first as Map<String, dynamic> : null;
     return Scaffold(
-      appBar: AppBar(
-        title: Text('SmartDrone  ${s.name}'),
-        actions: [
-          IconButton(
-            tooltip: 'Đăng xuất',
-            icon: const Icon(Icons.logout),
-            onPressed: () => Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
+      appBar: AppBar(title: Text('SmartDrone  ${s.name}')),
+      body: Row(
+        children: [
+          NavigationRail(
+            extended: true,
+            minExtendedWidth: 260,
+            selectedIndex: _tab,
+            onDestinationSelected: (i) => setState(() => _tab = i),
+            backgroundColor: Colors.white,
+            indicatorColor: const Color(0xFFD6EEF2),
+            selectedLabelTextStyle:
+                const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF087E8B)),
+            unselectedLabelTextStyle: const TextStyle(fontSize: 16, color: Colors.black87),
+            destinations: const [
+              NavigationRailDestination(icon: Icon(Icons.list_alt), label: Text('Đơn hàng')),
+              NavigationRailDestination(icon: Icon(Icons.add_box_outlined), label: Text('Tạo đơn')),
+              NavigationRailDestination(icon: Icon(Icons.chat_bubble_outline), label: Text('Trợ lý AI')),
+            ],
+            trailing: Expanded(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    ),
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Đăng xuất'),
+                  ),
+                ),
+              ),
             ),
           ),
-        ],
-      ),
-      body: IndexedStack(
-        index: _tab,
-        children: [
-          _ordersPage(),
-          CreateOrderPage(
-            session: s,
-            stations: _stations,
-            onCreated: () {
-              _loadOrders();
-              setState(() => _tab = 0);
-            },
+          const VerticalDivider(width: 1),
+          Expanded(
+            child: IndexedStack(
+              index: _tab,
+              children: [
+                _ordersPage(),
+                CreateOrderPage(
+                  session: s,
+                  stations: _stations,
+                  onCreated: () {
+                    _loadOrders();
+                    setState(() => _tab = 0);
+                  },
+                ),
+                ChatPage(
+                  status: latest?['trangThai']?.toString(),
+                  eta: latest?['thoiGianDuKienPhut'] as int?,
+                ),
+              ],
+            ),
           ),
-          ChatPage(
-            status: latest?['trangThai']?.toString(),
-            eta: latest?['thoiGianDuKienPhut'] as int?,
-          ),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.list_alt), label: 'Đơn hàng'),
-          NavigationDestination(icon: Icon(Icons.add_box_outlined), label: 'Tạo đơn'),
-          NavigationDestination(icon: Icon(Icons.chat_bubble_outline), label: 'Trợ lý AI'),
         ],
       ),
     );
@@ -529,9 +635,9 @@ class _ChatPageState extends State<ChatPage> {
                         child: Container(
                           margin: const EdgeInsets.symmetric(vertical: 4),
                           padding: const EdgeInsets.all(12),
-                          constraints: const BoxConstraints(maxWidth: 320),
+                          constraints: const BoxConstraints(maxWidth: 480),
                           decoration: BoxDecoration(
-                            color: m.mine ? const Color(0xFF0C4A6E) : const Color(0xFF14233D),
+                            color: m.mine ? const Color(0xFFD6EEF2) : Colors.white,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(m.text),

@@ -22,7 +22,24 @@ const statusVi = {
   'InTransit': 'Đang giao',
   'Completed': 'Hoàn tất',
   'Failed': 'Thất bại',
+  'Cancelled': 'Đã hủy',
 };
+
+Color statusColor(String s) {
+  switch (s) {
+    case 'Completed':
+      return const Color(0xFF15803D);
+    case 'Failed':
+    case 'Rejected':
+      return const Color(0xFFB91C1C);
+    case 'Cancelled':
+      return const Color(0xFF6B7280);
+    case 'InTransit':
+      return const Color(0xFF1D4ED8);
+    default:
+      return const Color(0xFFB45309);
+  }
+}
 
 class Api {
   final String token;
@@ -51,7 +68,37 @@ class StationOperatorApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: teal),
         scaffoldBackgroundColor: canvas,
-        appBarTheme: const AppBarTheme(backgroundColor: canvas, foregroundColor: navy),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: canvas,
+          foregroundColor: navy,
+          toolbarHeight: 72,
+          titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: navy),
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(64, 58),
+            textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          height: 84,
+          labelTextStyle: WidgetStatePropertyAll(TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        ),
+      ),
+      builder: (context, child) => ColoredBox(
+        color: canvas,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 2200),
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.45)),
+              child: child!,
+            ),
+          ),
+        ),
       ),
       home: const LoginScreen(),
     );
@@ -111,32 +158,34 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
+          constraints: const BoxConstraints(maxWidth: 900),
           child: Card(
             color: Colors.white,
             elevation: 0,
             margin: const EdgeInsets.all(20),
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(64),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text('SmartDrone Station',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: navy)),
+                      style: TextStyle(fontSize: 52, fontWeight: FontWeight.w800, color: navy)),
                   const SizedBox(height: 4),
-                  const Text('Dành cho nhân viên trạm'),
+                  const Text('Dành cho nhân viên trạm', style: TextStyle(fontSize: 26)),
                   const SizedBox(height: 20),
                   TextField(
                     controller: _email,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                    style: const TextStyle(fontSize: 26),
+                    decoration: const InputDecoration(labelText: 'Email', labelStyle: TextStyle(fontSize: 22), border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _pass,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Mật khẩu', border: OutlineInputBorder()),
+                    style: const TextStyle(fontSize: 26),
+                    decoration: const InputDecoration(labelText: 'Mật khẩu', labelStyle: TextStyle(fontSize: 22), border: OutlineInputBorder()),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),
@@ -258,24 +307,43 @@ class _StationHomeState extends State<StationHome> {
   Widget build(BuildContext context) {
     final pages = [_overview(), _tasksPage(), _summary()];
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Nhân viên trạm: ${widget.name}', style: const TextStyle(fontWeight: FontWeight.w800)),
-        actions: [
-          IconButton(
-            tooltip: 'Đăng xuất',
-            icon: const Icon(Icons.logout),
-            onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen())),
+      appBar: AppBar(title: Text('Nhân viên trạm: ${widget.name}')),
+      body: Row(
+        children: [
+          NavigationRail(
+            extended: true,
+            minExtendedWidth: 260,
+            selectedIndex: tab,
+            onDestinationSelected: (i) => setState(() => tab = i),
+            backgroundColor: Colors.white,
+            indicatorColor: const Color(0xFFD6EEF2),
+            selectedLabelTextStyle:
+                const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF087E8B)),
+            unselectedLabelTextStyle: const TextStyle(fontSize: 16, color: Colors.black87),
+            destinations: const [
+              NavigationRailDestination(icon: Icon(Icons.dashboard_outlined), label: Text('Tổng quan')),
+              NavigationRailDestination(icon: Icon(Icons.assignment_outlined), label: Text('Công việc')),
+              NavigationRailDestination(icon: Icon(Icons.summarize_outlined), label: Text('Tóm tắt')),
+            ],
+            trailing: Expanded(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    ),
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Đăng xuất'),
+                  ),
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
-      body: SafeArea(child: pages[tab]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (v) => setState(() => tab = v),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard_outlined), label: 'Tổng quan'),
-          NavigationDestination(icon: Icon(Icons.assignment_outlined), label: 'Công việc'),
-          NavigationDestination(icon: Icon(Icons.summarize_outlined), label: 'Tóm tắt'),
+          const VerticalDivider(width: 1),
+          Expanded(child: SafeArea(child: pages[tab])),
         ],
       ),
     );
@@ -437,7 +505,7 @@ class _TaskCardState extends State<TaskCard> {
           children: [
             Row(children: [
               Expanded(child: Text(o['trackingCode'].toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
-              Text(statusVi[status] ?? status, style: TextStyle(color: moving ? teal : Colors.deepOrange, fontWeight: FontWeight.w600)),
+              Text(statusVi[status] ?? status, style: TextStyle(color: statusColor(status), fontWeight: FontWeight.w800, fontSize: 16)),
             ]),
             const SizedBox(height: 4),
             Text(widget.route),

@@ -187,16 +187,17 @@ CREATE OR ALTER PROCEDURE dbo.sp_XemDonHangCuaKhach
 AS
 BEGIN
     SET NOCOUNT ON;
-
     SELECT
-        o.OrderId        AS MaDon,
-        o.TrackingCode   AS MaVanDon,
-        o.ReceiverName   AS TenNguoiNhan,
+        o.OrderId         AS MaDon,
+        o.TrackingCode    AS MaVanDon,
+        o.ReceiverName    AS TenNguoiNhan,
         o.ReceiverAddress AS DiaChiGiao,
         o.PackageWeightKg AS KhoiLuongKg,
-        o.DeliveryFee    AS PhiGiaoHang,
-        o.Status         AS TrangThai,
-        o.CreatedDate    AS NgayTao
+        o.DeliveryFee     AS PhiGiaoHang,
+        o.Status          AS TrangThai,
+        o.EstimatedMinutes AS ThoiGianDuKienPhut,
+        o.OtpCode         AS MaOtp,
+        o.CreatedDate     AS NgayTao
     FROM dbo.Orders AS o
     WHERE o.CustomerId = @CustomerId
     ORDER BY o.CreatedDate DESC;

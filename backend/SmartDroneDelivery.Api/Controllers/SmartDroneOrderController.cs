@@ -134,6 +134,65 @@ namespace SmartDroneDelivery.Api.Controllers
             }
         }
 
+
+                private static readonly Dictionary<string, string> StatusVi = new()
+        {
+            ["Pending"] = "Chờ duyệt", ["Approved"] = "Đã duyệt", ["Rejected"] = "Từ chối",
+            ["Scheduled"] = "Đã xếp lịch", ["InTransit"] = "Đang giao", ["Completed"] = "Hoàn tất",
+            ["Failed"] = "Thất bại", ["Cancelled"] = "Đã hủy"
+        };
+
+        // 4. Tóm tắt chuyến giao (gọi AI service, lỗi thì dùng bản dự phòng)
+        [HttpGet("{id}/summary")]
+        [Authorize(Roles = "Dispatcher,StationOperator,LogisticsManager,SystemAdmin")]
+        public async Task<IActionResult> Summary(int id)
+        {
+            var rows = await _context.Database.SqlQuery<SummaryRow>($@"
+                SELECT o.TrackingCode, o.Status,
+                       s1.StationName AS FromName, s2.StationName AS ToName,
+                       (SELECT TOP 1 d.Code FROM dbo.Drones d WHERE d.CurrentStationId = o.DepartureStationId ORDER BY d.Id) AS DroneCode,
+                       (SELECT TOP 1 d.BatteryPct FROM dbo.Drones d WHERE d.CurrentStationId = o.DepartureStationId ORDER BY d.Id) AS BatteryPct,
+                       (SELECT TOP 1 h.Note FROM dbo.DeliveryHistory h WHERE h.OrderId = o.OrderId ORDER BY h.UpdatedAt DESC, h.HistoryId DESC) AS LastNote
+                FROM dbo.Orders o
+                JOIN dbo.Stations s1 ON s1.StationId = o.DepartureStationId
+                JOIN dbo.Stations s2 ON s2.StationId = o.ArrivalStationId
+                WHERE o.OrderId = {id}").ToListAsync();
+
+            var r = rows.FirstOrDefault();
+            if (r == null)
+                return NotFound(new { message = "Không tìm thấy đơn hàng." });
+
+            var statusVi = StatusVi.GetValueOrDefault(r.Status, r.Status);
+            try
+            {
+                var client = _httpFactory.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(3);
+                var baseUrl = _config["AiService:BaseUrl"] ?? "http://localhost:8000";
+                var res = await client.PostAsJsonAsync($"{baseUrl}/ai/summary", new
+                {
+                    order_code = r.TrackingCode,
+                    status = statusVi,
+                    pickup_station = r.FromName,
+                    dropoff_station = r.ToName,
+                    drone_code = r.DroneCode ?? "Chưa phân công",
+                    battery_pct = r.BatteryPct ?? 100,
+                    note = r.LastNote
+                });
+                if (res.IsSuccessStatusCode)
+                {
+                    using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                    return Ok(new { summary = doc.RootElement.GetProperty("summary").GetString(), source = "ai-service" });
+                }
+            }
+            catch { }
+
+            return Ok(new
+            {
+                summary = $"Đơn {r.TrackingCode} đang ở trạng thái {statusVi}. Lộ trình: {r.FromName} đến {r.ToName}.",
+                source = "fallback"
+            });
+        }
+
         // Gọi AI service; nếu lỗi thì tính ETA dự phòng để hệ thống vẫn chạy
         private async Task<int> GetEtaMinutes(double distanceKm, double weightKg)
         {
@@ -172,6 +231,17 @@ namespace SmartDroneDelivery.Api.Controllers
                        Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
             return R * 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
         }
+    }
+
+        public class SummaryRow
+    {
+        public string TrackingCode { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string FromName { get; set; } = "";
+        public string ToName { get; set; } = "";
+        public string? DroneCode { get; set; }
+        public int? BatteryPct { get; set; }
+        public string? LastNote { get; set; }
     }
 
     public class StationPoint
