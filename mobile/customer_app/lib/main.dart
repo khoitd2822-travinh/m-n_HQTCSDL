@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -388,7 +389,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final latest = _orders.isNotEmpty ? _orders.first as Map<String, dynamic> : null;
+    
     return Scaffold(
       appBar: AppBar(title: Text('SmartDrone  ${s.name}')),
       body: Row(
@@ -406,6 +407,7 @@ class _HomeScreenState extends State<HomeScreen> {
             destinations: const [
               NavigationRailDestination(icon: Icon(Icons.list_alt), label: Text('Đơn hàng')),
               NavigationRailDestination(icon: Icon(Icons.add_box_outlined), label: Text('Tạo đơn')),
+              NavigationRailDestination(icon: Icon(Icons.flight), label: Text('Theo dõi')),
               NavigationRailDestination(icon: Icon(Icons.chat_bubble_outline), label: Text('Trợ lý AI')),
             ],
             trailing: Expanded(
@@ -439,10 +441,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     setState(() => _tab = 0);
                   },
                 ),
-                ChatPage(
-                  status: latest?['trangThai']?.toString(),
-                  eta: latest?['thoiGianDuKienPhut'] as int?,
-                ),
+                TrackingPage(session: s, stations: _stations),
+                ChatPage(session: s),
               ],
             ),
           ),
@@ -574,9 +574,8 @@ class _CreateOrderPageState extends State<CreateOrderPage> {
 
 // ---------------------------------------------------------------- Trợ lý AI
 class ChatPage extends StatefulWidget {
-  final String? status;
-  final int? eta;
-  const ChatPage({super.key, this.status, this.eta});
+  final Session session;
+  const ChatPage({super.key, required this.session});
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -599,20 +598,16 @@ class _ChatPageState extends State<ChatPage> {
     });
     String reply;
     try {
-      final res = await http.post(
-        Uri.parse('${ApiConfig.ai}/ai/chat'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'message': text,
-          'order_status': widget.status ?? 'Pending',
-          'estimated_minutes': widget.eta ?? 10,
-        }),
+              final res = await http.post(
+        Uri.parse('${ApiConfig.backend}/api/SmartDroneOrder/chat'),
+        headers: widget.session.headers,
+        body: jsonEncode({'message': text}),
       );
       reply = res.statusCode == 200
           ? (jsonDecode(res.body)['reply'] ?? res.body).toString()
           : 'Trợ lý AI đang gặp lỗi (${res.statusCode}).';
     } catch (_) {
-      reply = 'Không kết nối được dịch vụ AI (${ApiConfig.ai}). Hãy bật AI service.';
+          reply = 'Không kết nối được backend (${ApiConfig.backend}).';
     }
     if (!mounted) return;
     setState(() {
@@ -663,4 +658,226 @@ class _ChatPageState extends State<ChatPage> {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------- Theo dõi drone
+class TrackingPage extends StatefulWidget {
+  final Session session;
+  final List<dynamic> stations;
+  const TrackingPage({super.key, required this.session, required this.stations});
+
+  @override
+  State<TrackingPage> createState() => _TrackingPageState();
+}
+
+class _TrackingPageState extends State<TrackingPage> {
+  List<dynamic> _flights = [];
+  String? _error;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final res = await http.get(Uri.parse('${ApiConfig.backend}/api/Flights'), headers: widget.session.headers);
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        setState(() {
+          _flights = jsonDecode(res.body) as List<dynamic>;
+          _error = null;
+        });
+      } else {
+        setState(() => _error = 'Không tải được dữ liệu theo dõi (${res.statusCode}).');
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Không kết nối được backend.');
+    }
+  }
+
+  double? _num(dynamic v) => v is num ? v.toDouble() : null;
+
+  List<({String name, double lat, double lng})> get _stationPoints {
+    final out = <({String name, double lat, double lng})>[];
+    for (final st in widget.stations) {
+      final lat = _num(st['latitude'] ?? st['lat']);
+      final lng = _num(st['longitude'] ?? st['lng']);
+      if (lat != null && lng != null) {
+        out.add((name: (st['stationName'] ?? st['name'] ?? '').toString(), lat: lat, lng: lng));
+      }
+    }
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stations = _stationPoints;
+    final flights = _flights.map((f) => f as Map<String, dynamic>).toList();
+    final all = <({double lat, double lng})>[
+      for (final s in stations) (lat: s.lat, lng: s.lng),
+      for (final f in flights) ...[
+        (lat: _num(f['origin']['lat'])!, lng: _num(f['origin']['lng'])!),
+        (lat: _num(f['destination']['lat'])!, lng: _num(f['destination']['lng'])!),
+      ],
+    ];
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(_error!, style: const TextStyle(color: Colors.deepOrange)),
+            ),
+          Expanded(
+            flex: 3,
+            child: Container(
+              width: double.infinity,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFD8E1EE)),
+              ),
+              child: all.isEmpty
+                  ? const Center(child: Text('Chưa có dữ liệu tọa độ của các trạm.'))
+                  : LayoutBuilder(builder: (context, c) => _map(c.maxWidth, c.maxHeight, stations, flights, all)),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(flex: 2, child: _list(flights)),
+        ],
+      ),
+    );
+  }
+
+  Widget _map(
+    double w,
+    double h,
+    List<({String name, double lat, double lng})> stations,
+    List<Map<String, dynamic>> flights,
+    List<({double lat, double lng})> all,
+  ) {
+    const pad = 90.0;
+    final minLat = all.map((p) => p.lat).reduce(math.min);
+    final maxLat = all.map((p) => p.lat).reduce(math.max);
+    final minLng = all.map((p) => p.lng).reduce(math.min);
+    final maxLng = all.map((p) => p.lng).reduce(math.max);
+    final dLat = (maxLat - minLat) == 0 ? 0.01 : maxLat - minLat;
+    final dLng = (maxLng - minLng) == 0 ? 0.01 : maxLng - minLng;
+    final sc = math.min((w - 2 * pad) / dLng, (h - 2 * pad) / dLat);
+    final ox = (w - dLng * sc) / 2;
+    final oy = (h - dLat * sc) / 2;
+    Offset p(double lat, double lng) => Offset(ox + (lng - minLng) * sc, h - (oy + (lat - minLat) * sc));
+
+    return Stack(
+      children: [
+        CustomPaint(
+          size: Size(w, h),
+          painter: _MapPainter(
+            stations: [for (final s in stations) p(s.lat, s.lng)],
+            routes: [
+              for (final f in flights)
+                (
+                  p(_num(f['origin']['lat'])!, _num(f['origin']['lng'])!),
+                  p(_num(f['destination']['lat'])!, _num(f['destination']['lng'])!),
+                ),
+            ],
+          ),
+        ),
+        for (final s in stations)
+          Positioned(
+            left: p(s.lat, s.lng).dx - 70,
+            top: p(s.lat, s.lng).dy + 14,
+            width: 140,
+            child: Text(s.name, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          ),
+        for (final f in flights)
+          AnimatedPositioned(
+            key: ValueKey(f['orderId']),
+            duration: const Duration(seconds: 2),
+            curve: Curves.linear,
+            left: p(_num(f['lat'])!, _num(f['lng'])!).dx - 24,
+            top: p(_num(f['lat'])!, _num(f['lng'])!).dy - 24,
+            child: const Icon(Icons.flight, size: 48, color: Color(0xFFD97706)),
+          ),
+      ],
+    );
+  }
+
+  Widget _list(List<Map<String, dynamic>> flights) {
+    if (flights.isEmpty) {
+      return const Center(
+        child: Text('Hiện không có drone nào đang giao đơn của bạn.', textAlign: TextAlign.center),
+      );
+    }
+    return ListView(
+      children: [
+        for (final f in flights)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${f['trackingCode']}  |  ${f['origin']['name']} → ${f['destination']['name']}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(value: (f['progress'] as num).toDouble(), minHeight: 10),
+                  const SizedBox(height: 6),
+                  Text(f['arrived'] == true
+                      ? 'Drone đã tới trạm nhận. Hãy đọc mã OTP cho nhân viên trạm.'
+                      : 'Còn khoảng ${f['remainingSeconds']} giây'),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _MapPainter extends CustomPainter {
+  final List<Offset> stations;
+  final List<(Offset, Offset)> routes;
+  _MapPainter({required this.stations, required this.routes});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = const Color(0xFF087E8B)
+      ..strokeWidth = 3;
+    for (final (a, b) in routes) {
+      final total = (b - a).distance;
+      if (total == 0) continue;
+      final dir = (b - a) / total;
+      for (double d = 0; d < total; d += 18) {
+        canvas.drawLine(a + dir * d, a + dir * math.min(d + 10, total), line);
+      }
+    }
+    final fill = Paint()..color = Colors.white;
+    final ring = Paint()
+      ..color = const Color(0xFF152238)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    for (final s in stations) {
+      canvas.drawCircle(s, 10, fill);
+      canvas.drawCircle(s, 10, ring);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MapPainter oldDelegate) => true;
 }

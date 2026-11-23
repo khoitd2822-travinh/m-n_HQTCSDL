@@ -81,6 +81,25 @@ td input{width:120px;padding:8px 10px;margin-right:4px}
     <button class="go">Đăng nhập</button>
     <div id="err" class="err" role="alert"></div>
     <div class="demo" id="demo"></div>
+        <p style="text-align:center;margin:14px 0 0"><a href="#" onclick="showForgot(event)" style="color:var(--ac)">Quên mật khẩu?</a></p>
+  </form>
+</div>
+
+<div id="fbox" class="center" hidden>
+  <form class="login" onsubmit="forgotStep(event)">
+    <h1>Quên mật khẩu</h1>
+    <p id="fhint">Nhập email và số điện thoại đã đăng ký.</p>
+    <div id="f1">
+      <label for="f_em">Email</label><input id="f_em" type="email" required>
+      <label for="f_ph">Số điện thoại</label><input id="f_ph" inputmode="tel" required>
+    </div>
+    <div id="f2" hidden>
+      <label for="f_code">Mã xác nhận (6 số)</label><input id="f_code" inputmode="numeric" maxlength="6">
+      <label for="f_pw">Mật khẩu mới</label><input id="f_pw" type="password" autocomplete="new-password">
+    </div>
+    <button class="go" id="fbtn">Gửi mã xác nhận</button>
+    <div id="fmsg" class="err" role="alert"></div>
+    <p style="text-align:center;margin:10px 0 0"><a href="#" onclick="hideForgot(event)" style="color:var(--ac)">Quay lại đăng nhập</a></p>
   </form>
 </div>
 
@@ -156,21 +175,25 @@ async function login(ev) {
 function logout() {
   clearInterval(S.timer);
   S.token = S.user = null;
+  S.chat = null;
   try { localStorage.removeItem('sd'); } catch (e) {}
   $('#app').hidden = true; $('#login').hidden = false;
 }
 
 /* ---------- Khung ứng dụng ---------- */
 function tabsFor(role) {
-  if (role === 'Customer') return { orders: 'Đơn của tôi', create: 'Tạo đơn' };
+  if (role === 'Customer') return { orders: 'Đơn của tôi', map: 'Bản đồ', create: 'Tạo đơn', chat: 'Trợ lý AI' };
   if (role === 'StationOperator') return { orders: 'Đơn hàng', map: 'Bản đồ', stations: 'Trạm' };
-  return { dash: 'Tổng quan', map: 'Bản đồ', orders: 'Đơn hàng', stations: 'Trạm' };
+    const t = { dash: 'Tổng quan', map: 'Bản đồ', orders: 'Đơn hàng', stations: 'Trạm' };
+  if (role === 'SystemAdmin') t.users = 'Người dùng';
+  return t;
 }
 
 async function start() {
   $('#login').hidden = true; $('#app').hidden = false;
   $('#who').innerHTML = `<b>${esc(S.user.fullName)}</b><small>${esc(ROLE[S.user.role] || S.user.role)}</small>`;
   const tabs = tabsFor(S.user.role);
+  tabs.profile = 'Hồ sơ';
   $('#tabs').innerHTML = Object.entries(tabs).map(([k, v]) => `<button data-k="${k}" onclick="go('${k}')">${v}</button>`).join('');
   try {
     const list = await api('/api/Stations');
@@ -183,7 +206,7 @@ async function start() {
   clearInterval(S.timer);
   S.timer = setInterval(() => {
     S.tick++;
-    if (S.tab === 'map' || S.tick % 3 === 0) { if (document.activeElement.tagName !== 'INPUT') refresh(); }
+    if (S.tab === 'map' || S.tick % 3 === 0) { if (!['INPUT', 'SELECT'].includes(document.activeElement.tagName)) refresh(); }
   }, 2000);
 }
 
@@ -197,6 +220,8 @@ async function refresh() {
   const view = $('#view');
   try {
     if (S.tab === 'create' && $('#cform')) return;
+    if (S.tab === 'profile' && $('#pform')) return;
+    if (S.tab === 'chat' && $('#chatbox')) return;
     if (S.tab === 'map') await mapRefresh();
     else view.innerHTML = await VIEW[S.tab]();
   }
@@ -229,7 +254,7 @@ const VIEW = {
       </div>`;
   },
 
-  async orders() {
+    async orders() {
     const mine = S.user.role === 'Customer';
     const raw = await api(mine ? '/api/Orders/mine' : '/api/Orders');
     const list = raw.map(o => mine
@@ -242,9 +267,11 @@ const VIEW = {
         <td>${o.route ? esc(o.route) : (o.eta != null ? 'Dự kiến ' + o.eta + ' phút' : '')}</td>
         <td>${o.w} kg<br><small>${fmt(o.fee)} đ</small></td>
         <td>${chip(o.status)}${mine && o.otp && o.status !== 'Completed' ? `<br><small>Mã OTP: <b>${esc(o.otp)}</b></small>` : ''}</td>
-        ${mine ? '' : `<td>${actions(o)}</td>`}</tr>`).join('');
+        <td>${mine
+          ? btn(o.id, 'history', 'Lịch sử', 'ac') + (o.status === 'Pending' ? btn(o.id, 'cancel', 'Hủy đơn', 'er') : '')
+          : actions(o)}</td></tr>`).join('');
     return `<section><div class="wrap"><table>
-      <tr><th>Mã vận đơn</th><th>Người nhận</th><th>${mine ? 'Thời gian' : 'Tuyến'}</th><th>Hàng</th><th>Trạng thái</th>${mine ? '' : '<th>Thao tác</th>'}</tr>
+      <tr><th>Mã vận đơn</th><th>Người nhận</th><th>${mine ? 'Thời gian' : 'Tuyến'}</th><th>Hàng</th><th>Trạng thái</th><th>Thao tác</th></tr>
       ${rows}</table></div></section>`;
   },
 
@@ -276,6 +303,101 @@ VIEW.create = async function () {
       <div id="cmsg" class="err" role="alert"></div>
     </form></section>`;
 };
+
+VIEW.stations = async function () {
+  const list = await api('/api/Stations');
+  const canEdit = ['StationOperator', 'Dispatcher', 'LogisticsManager', 'SystemAdmin'].includes(S.user.role);
+  const sel = (id, cur) => `<select aria-label="Đổi trạng thái trạm" onchange="setStation(${id}, this.value)">` +
+    ['Available', 'Busy', 'Maintenance'].map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${STATUS[k]}</option>`).join('') + '</select>';
+  return `<section><div class="wrap"><table>
+    <tr><th>Trạm</th><th>Địa chỉ</th><th>Trạng thái</th><th>Tọa độ</th>${canEdit ? '<th>Đổi trạng thái</th>' : ''}</tr>
+    ${list.map(s => `<tr><td>${esc(s.stationName ?? s.name)}</td><td>${esc(s.locationAddress ?? s.address ?? '')}</td>
+      <td>${chip(s.status)}</td><td><small>${s.latitude}, ${s.longitude}</small></td>
+      ${canEdit ? `<td>${sel(s.id ?? s.stationId, s.status)}</td>` : ''}</tr>`).join('')}
+    </table></div></section>`;
+};
+
+async function setStation(id, status) {
+  try {
+    await api(`/api/Stations/${id}/status`, { method: 'PUT', body: { status } });
+    toast('Đã đổi trạng thái trạm.');
+  } catch (e) { toast(e.message, true); }
+  refresh();
+}
+
+
+async function setRole(id, role) {
+  try {
+    await api(`/api/Users/${id}/role`, { method: 'PUT', body: { role } });
+    toast('Đã đổi vai trò.');
+  } catch (e) { toast(e.message, true); }
+  refresh();
+}
+
+VIEW.users = async function () {
+  const list = await api('/api/Users');
+  return `<section><h3>Danh sách người dùng</h3><div class="wrap"><table>
+    <tr><th>Họ tên</th><th>Email</th><th>Điện thoại</th><th>Vai trò</th></tr>
+    ${list.map(u => `<tr><td><b>${esc(u.fullName)}</b></td><td>${esc(u.email)}</td><td>${esc(u.phoneNumber || '')}</td>
+      <td>${esc(ROLE[u.role] || u.role)}</td></tr>`).join('')}
+    </table></div></section>`;
+};
+
+VIEW.profile = async function () {
+  const u = await api('/api/Profile/me');
+  const box = 'style="max-width:520px;margin:0 auto 20px"';
+  return `<section ${box}><h3 style="text-align:center;margin-bottom:6px">Hồ sơ cá nhân</h3>
+    <p style="text-align:center;margin:0 0 8px"><small>${esc(u.email)} · ${esc(ROLE[u.role] || u.role)}</small></p>
+    <form id="pform" onsubmit="saveProfile(event)">
+      <label for="p_name">Họ tên</label>
+      <input id="p_name" value="${esc(u.fullName)}" required>
+      <label for="p_phone">Số điện thoại</label>
+      <input id="p_phone" value="${esc(u.phoneNumber || '')}" inputmode="tel">
+      <button class="go">Lưu hồ sơ</button>
+      <div id="pmsg" class="err" role="alert" style="text-align:center"></div>
+    </form></section>
+    <section ${box}><h3 style="text-align:center">Đổi mật khẩu</h3>
+    <form id="wform" onsubmit="changePw(event)">
+      <label for="w_old">Mật khẩu hiện tại</label>
+      <input id="w_old" type="password" autocomplete="current-password" required>
+      <label for="w_new">Mật khẩu mới (ít nhất 6 ký tự)</label>
+      <input id="w_new" type="password" autocomplete="new-password" required>
+      <label for="w_new2">Nhập lại mật khẩu mới</label>
+      <input id="w_new2" type="password" autocomplete="new-password" required>
+      <button class="go">Đổi mật khẩu</button>
+      <div id="wmsg" class="err" role="alert" style="text-align:center"></div>
+    </form></section>`;
+};
+
+async function saveProfile(ev) {
+  ev.preventDefault();
+  $('#pmsg').textContent = '';
+  try {
+    const d = await api('/api/Profile/me', {
+      method: 'PUT',
+      body: { fullName: $('#p_name').value, phoneNumber: $('#p_phone').value }
+    });
+    S.user.fullName = d.fullName;
+    try { localStorage.setItem('sd', JSON.stringify(S.user)); } catch (e) {}
+    $('#who').innerHTML = `<b>${esc(S.user.fullName)}</b><small>${esc(ROLE[S.user.role] || S.user.role)}</small>`;
+    toast('Đã cập nhật hồ sơ.');
+  } catch (e) { $('#pmsg').textContent = e.message; }
+}
+
+async function changePw(ev) {
+  ev.preventDefault();
+  const msg = $('#wmsg');
+  msg.textContent = '';
+  if ($('#w_new').value !== $('#w_new2').value) { msg.textContent = 'Hai mật khẩu mới không giống nhau.'; return; }
+  try {
+    await api('/api/Profile/change-password', {
+      method: 'POST',
+      body: { oldPassword: $('#w_old').value, newPassword: $('#w_new').value }
+    });
+    toast('Đã đổi mật khẩu. Lần đăng nhập sau dùng mật khẩu mới.');
+    $('#w_old').value = $('#w_new').value = $('#w_new2').value = '';
+  } catch (e) { msg.textContent = e.message; }
+}
 
 async function submitOrder(ev) {
   ev.preventDefault();
@@ -364,24 +486,38 @@ function actions(o) {
   const review = ['Dispatcher', 'SystemAdmin'].includes(r);
   const run = ['Dispatcher', 'StationOperator', 'SystemAdmin'].includes(r);
   const otp = ['StationOperator', 'SystemAdmin'].includes(r);
-  let h = btn(o.id, 'summary', 'Tóm tắt AI', 'ac');
+  const pick = ['StationOperator', 'SystemAdmin'].includes(r);
+  let h = btn(o.id, 'summary', 'Tóm tắt AI', 'ac') + btn(o.id, 'history', 'Lịch sử', 'ac');
   if (o.status === 'Pending' && review) h += btn(o.id, 'approve', 'Duyệt đơn', 'ok') + btn(o.id, 'reject', 'Từ chối', 'er');
+  if (o.status === 'Approved' && review) h += btn(o.id, 'schedule', 'Xếp lịch', 'ac');
   if (['Approved', 'Scheduled'].includes(o.status) && run) h += btn(o.id, 'start', 'Bắt đầu giao', 'ac');
+  if (['Approved', 'Scheduled'].includes(o.status) && pick) h += btn(o.id, 'pickup', 'Xác nhận lấy hàng', 'ok');
   if (o.status === 'InTransit') {
     if (otp) h += `<input id="otp${o.id}" inputmode="numeric" maxlength="6" placeholder="Mã OTP" aria-label="Mã OTP của đơn ${esc(o.code)}">` + btn(o.id, 'otp', 'Xác nhận giao', 'ok');
     if (run) h += btn(o.id, 'fail', 'Giao thất bại', 'er');
   }
-  return h || '<small>Không có thao tác</small>';
+  return h;
 }
 
 async function act(id, kind) {
+  if (kind === 'cancel' && !confirm('Bạn chắc chắn muốn hủy đơn này?')) return;
   try {
-        if (kind === 'summary') {
+    if (kind === 'summary') {
       const d = await api(`/api/SmartDroneOrder/${id}/summary`);
       return alert(d.summary + (d.source === 'fallback' ? '\n\n(AI service chưa bật, đang dùng bản dự phòng)' : ''));
     }
-
-    if (kind === 'otp') {
+    if (kind === 'history') {
+      const list = await api(`/api/orders/${id}/history`);
+      return alert(list.length
+        ? list.map(x => `${dtime(x.updatedAt)}: ${x.oldStatus ? (STATUS[x.oldStatus] || x.oldStatus) : 'Mới'} → ${STATUS[x.newStatus] || x.newStatus}` +
+            `${x.updatedByName ? ' (' + x.updatedByName + ')' : ''}${x.note ? ' - ' + x.note : ''}`).join('\n')
+        : 'Chưa có lịch sử.');
+    }
+    if (kind === 'schedule') {
+      const t = prompt('Giờ giao dự kiến (ví dụ 14:30):');
+      if (!t || !t.trim()) return;
+      await api(`/api/orders/${id}/schedule`, { method: 'POST', body: { note: 'Xep lich giao luc ' + t.trim() } });
+    } else if (kind === 'otp') {
       const code = ($('#otp' + id).value || '').trim();
       if (!code) return toast('Hãy nhập mã OTP khách hàng đọc.', true);
       await api(`/api/SmartDroneOrder/${id}/confirm-delivery`, { method: 'POST', body: { otpCode: code } });
@@ -391,6 +527,76 @@ async function act(id, kind) {
     toast('Đã cập nhật đơn hàng.');
     refresh();
   } catch (e) { toast(e.message, true); }
+}
+
+/* ---------- Trợ lý AI cho khách ---------- */
+const chatLine = m => `<div style="display:flex;justify-content:${m.who === 'me' ? 'flex-end' : 'flex-start'};margin:6px 0">
+  <span style="max-width:80%;padding:8px 12px;border-radius:12px;border:1px solid var(--line);white-space:pre-wrap;
+  background:${m.who === 'me' ? 'rgba(56,189,248,.18)' : 'rgba(128,128,128,.10)'};color:var(--tx)">${esc(m.text)}</span></div>`;
+
+VIEW.chat = async function () {
+  if (!S.chat) S.chat = [{ who: 'bot', text: 'Xin chào! Mình là trợ lý SmartDrone. Bạn có thể hỏi về trạng thái đơn hàng, thời gian giao dự kiến hoặc thông tin trạm và drone.' }];
+  const quick = ['Đơn của tôi đang ở trạng thái nào?', 'Bao lâu nữa thì giao đến?', 'Thông tin trạm và drone'];
+  return `<section style="max-width:640px;margin:0 auto"><h3 style="text-align:center;margin-bottom:12px">Trợ lý AI</h3>
+    <div id="chatbox" style="height:340px;overflow-y:auto;padding:10px;border:1px solid var(--line);border-radius:10px">${S.chat.map(chatLine).join('')}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+      ${quick.map(q => `<button type="button" class="b ac" onclick="quickChat(this.textContent)">${esc(q)}</button>`).join('')}
+    </div>
+    <form onsubmit="sendChat(event)" style="display:flex;gap:8px;margin-top:10px">
+      <input id="chat_in" placeholder="Nhập câu hỏi..." maxlength="500" autocomplete="off" aria-label="Câu hỏi cho trợ lý AI">
+      <button class="go" style="width:auto;margin:0;padding:10px 20px">Gửi</button>
+    </form></section>`;
+};
+
+function pushChat(who, text) {
+  S.chat.push({ who, text });
+  const b = $('#chatbox');
+  if (!b) return;
+  b.insertAdjacentHTML('beforeend', chatLine({ who, text }));
+  b.scrollTop = b.scrollHeight;
+}
+
+async function sendChat(ev) {
+  ev.preventDefault();
+  const inp = $('#chat_in');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  pushChat('me', text);
+  try {
+    const d = await api('/api/SmartDroneOrder/chat', { method: 'POST', body: { message: text } });
+    pushChat('bot', d.reply);
+  } catch (e) { pushChat('bot', 'Lỗi: ' + e.message); }
+}
+
+function quickChat(text) { $('#chat_in').value = text; sendChat(new Event('submit')); }
+
+/* ---------- Quên mật khẩu (mã xác nhận giả lập) ---------- */
+let fStep = 1;
+function showForgot(ev) {
+  ev.preventDefault(); fStep = 1;
+  $('#f1').hidden = false; $('#f2').hidden = true;
+  $('#fbtn').textContent = 'Gửi mã xác nhận'; $('#fmsg').textContent = '';
+  $('#login').hidden = true; $('#fbox').hidden = false;
+}
+function hideForgot(ev) { ev.preventDefault(); $('#fbox').hidden = true; $('#login').hidden = false; }
+async function forgotStep(ev) {
+  ev.preventDefault();
+  const msg = $('#fmsg'); msg.textContent = '';
+  try {
+    if (fStep === 1) {
+      const d = await api('/api/PasswordReset/request', { method: 'POST', body: { email: $('#f_em').value.trim(), phone: $('#f_ph').value.trim() } });
+      fStep = 2;
+      $('#f1').hidden = true; $('#f2').hidden = false;
+      $('#f_code').required = true; $('#f_pw').required = true;
+      $('#fbtn').textContent = 'Đặt lại mật khẩu';
+      $('#fhint').textContent = 'Mã (giả lập SMS, bản thật sẽ gửi về điện thoại): ' + d.demoCode;
+    } else {
+      const d = await api('/api/PasswordReset/confirm', { method: 'POST', body: { email: $('#f_em').value.trim(), code: $('#f_code').value.trim(), newPassword: $('#f_pw').value } });
+      toast(d.message);
+      $('#fbox').hidden = true; $('#login').hidden = false;
+    }
+  } catch (e) { msg.textContent = e.message; }
 }
 
 /* ---------- Khởi động ---------- */

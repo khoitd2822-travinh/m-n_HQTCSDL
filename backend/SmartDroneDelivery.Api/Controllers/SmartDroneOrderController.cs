@@ -41,12 +41,14 @@ namespace SmartDroneDelivery.Api.Controllers
                 return BadRequest(new { message = "Thiếu thông tin người nhận." });
 
             var points = await _context.Database.SqlQuery<StationPoint>(
-                $"SELECT StationId, Latitude, Longitude FROM dbo.Stations WHERE StationId = {request.PickupStationId} OR StationId = {request.DropoffStationId}")
+                $"SELECT StationId, Latitude, Longitude, Status FROM dbo.Stations WHERE StationId = {request.PickupStationId} OR StationId = {request.DropoffStationId}")
                 .ToListAsync();
             var src = points.FirstOrDefault(p => p.StationId == request.PickupStationId);
             var dst = points.FirstOrDefault(p => p.StationId == request.DropoffStationId);
-            if (src == null || dst == null)
-                return BadRequest(new { message = "Trạm gửi hoặc trạm nhận không tồn tại." });
+            if (src.Status == "Maintenance")
+                return BadRequest(new {message = "Trạm gửi đang bảo trì, vui lòng chọn trạm khác."});
+            if (dst.Status == "Maintenance")
+                return BadRequest(new {message = "Trạm nhận đang bảo trì, vui lòng chọn trạm khác."});
 
             var distanceKm = DistanceKm(src.Latitude, src.Longitude, dst.Latitude, dst.Longitude);
             var fee = Math.Round((15000m + (decimal)distanceKm * 5000m + (decimal)request.PackageWeightKg * 3000m) / 1000m) * 1000m;
@@ -193,6 +195,59 @@ namespace SmartDroneDelivery.Api.Controllers
             });
         }
 
+                // 5. Chatbot cho khách: dựa trên đơn mới nhất của chính khách đó
+        [HttpPost("chat")]
+        [Authorize(Roles = "Customer")]
+        public async Task<IActionResult> Chat([FromBody] ChatDto dto)
+        {
+            var msg = (dto.Message ?? "").Trim();
+            if (msg.Length == 0 || msg.Length > 500)
+                return BadRequest(new { message = "Tin nhắn phải từ 1 đến 500 ký tự." });
+
+            var userId = User.GetUserId();
+            var mine = await _context.Database
+                .SqlQuery<MyOrderDto>($"EXEC dbo.sp_XemDonHangCuaKhach @CustomerId = {userId}")
+                .ToListAsync();
+            var latest = mine.FirstOrDefault(); // procedure đã sắp xếp mới nhất lên đầu
+
+            var statusVi = latest == null ? "Chưa có đơn nào"
+                : StatusVi.GetValueOrDefault(latest.TrangThai, latest.TrangThai);
+            var active = latest != null && new[] { "Pending", "Approved", "Scheduled", "InTransit" }.Contains(latest.TrangThai);
+
+            try
+            {
+                var client = _httpFactory.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(3);
+                var baseUrl = _config["AiService:BaseUrl"] ?? "http://localhost:8000";
+                var res = await client.PostAsJsonAsync($"{baseUrl}/ai/chat", new
+                {
+                    message = msg,
+                    order_status = statusVi,
+                    estimated_minutes = active ? latest!.ThoiGianDuKienPhut : null
+                });
+                if (res.IsSuccessStatusCode)
+                {
+                    using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                    return Ok(new
+                    {
+                        reply = doc.RootElement.GetProperty("reply").GetString(),
+                        orderCode = latest?.MaVanDon,
+                        source = "ai-service"
+                    });
+                }
+            }
+            catch { }
+
+            return Ok(new
+            {
+                reply = latest == null
+                    ? "Bạn chưa có đơn hàng nào. Hãy vào mục Tạo đơn để bắt đầu."
+                    : $"Đơn {latest.MaVanDon} đang ở trạng thái {statusVi}. (Trợ lý AI tạm thời không phản hồi, đây là câu trả lời dự phòng.)",
+                orderCode = latest?.MaVanDon,
+                source = "fallback"
+            });
+        }
+
         // Gọi AI service; nếu lỗi thì tính ETA dự phòng để hệ thống vẫn chạy
         private async Task<int> GetEtaMinutes(double distanceKm, double weightKg)
         {
@@ -244,11 +299,16 @@ namespace SmartDroneDelivery.Api.Controllers
         public string? LastNote { get; set; }
     }
 
+        public class ChatDto
+    {
+        public string? Message { get; set; }
+    }
     public class StationPoint
     {
         public int StationId { get; set; }
         public double Latitude { get; set; }
         public double Longitude { get; set; }
+        public string Status {get; set; } = "";
     }
 
     public class OrderCreateRequestDto
