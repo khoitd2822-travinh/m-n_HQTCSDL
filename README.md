@@ -9,7 +9,7 @@ Hệ thống quản lý nghiệp vụ giao hàng bằng drone (không điều kh
 | Thư mục | Nội dung | Công nghệ |
 |---|---|---|
 | `backend/` | Web API, phân quyền 5 vai trò | ASP.NET Core, EF Core, JWT |
-| `web/` | Giao diện Điều phối, Quản lý, Nhân viên trạm, Quản trị, Khách hàng | HTML, CSS, JavaScript |
+| `web-dashboard/` | Giao diện Điều phối, Quản lý, Nhân viên trạm, Quản trị, Khách hàng | HTML, CSS, JavaScript |
 | `mobile/customer_app/` | Ứng dụng khách hàng | Flutter |
 | `mobile/station_operator_app/` | Ứng dụng nhân viên trạm | Flutter |
 | `ai-service/` | ETA, tóm tắt, trợ lý AI | Python, FastAPI |
@@ -65,7 +65,7 @@ Tắt hệ thống: `docker compose down`.
    pip install -r requirements.txt
    uvicorn main:app --port 8000
    ```
-4. **Web**: mở `web/smartdrone_web_dashboard.html` bằng Live Server (hoặc bất kỳ web server tĩnh).
+4. **Web**: mở `web-dashboard/smartdrone_web_dashboard.html` bằng Live Server (hoặc bất kỳ web server tĩnh).
 5. **App Flutter**:
    ```bash
    cd mobile/customer_app
