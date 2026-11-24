@@ -39,7 +39,7 @@ services:
       - "8000:8000"
 
   backend:
-    build: ./bdbackend/SmartDroneDelivery.Api
+    build: ./backend/SmartDroneDelivery.Api
     container_name: drone-api
     restart: unless-stopped
     depends_on:
