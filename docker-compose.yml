@@ -1,17 +1,66 @@
 services:
   db:
-    image: postgis/postgis:16-3.4
+    image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: drone-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: smartdrone
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "SmartDrone@2026"
     ports:
-      - "5432:5432"
+      - "1434:1433"
     volumes:
-      - drone_pgdata:/var/lib/postgresql/data
-      - ./database:/docker-entrypoint-initdb.d
+      - drone_sqldata:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./database:/sql:ro
+    entrypoint: >
+      /bin/bash -c "
+      for f in smartdrone_schema.sql 02_procedures.sql 03_mock_data_.sql; do
+      /opt/mssql-tools18/bin/sqlcmd -S db -U sa -P 'SmartDrone@2026' -C -I -f 65001 -b -i /sql/$$f || exit 1;
+      done"
+    restart: "no"
+  ai-service:
+    build: ./ai-service
+    container_name: drone-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+
+  backend:
+    build: ./bdbackend/SmartDroneDelivery.Api
+    container_name: drone-api
+    restart: unless-stopped
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      ai-service:
+        condition: service_started
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=db;Database=DroneDeliveryDB;User Id=sa;Password=SmartDrone@2026;TrustServerCertificate=True;"
+      AiService__BaseUrl: "http://ai-service:8000"
+    ports:
+      - "5139:5139"
+
+  web:
+    image: nginx:alpine
+    container_name: drone-web
+    restart: unless-stopped
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
 
 volumes:
-  drone_pgdata:
+  drone_sqldata:

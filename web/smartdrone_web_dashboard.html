@@ -66,6 +66,7 @@ td input{width:120px;padding:8px 10px;margin-right:4px}
 .map{display:block;width:100%;height:auto;margin:8px 0 16px;background:#eaf1f9;border:1px solid var(--line);border-radius:8px}
 .map text{fill:var(--tx);font-size:15px;font-weight:600}
 .dr{transition:transform 2s linear}
+.badge{display:inline-block;min-width:20px;height:20px;line-height:20px;padding:0 6px;margin-left:8px;border-radius:10px;background:var(--er);color:#fff;font-size:12px;font-weight:700;text-align:center}
 </style>
 </head>
 <body>
@@ -81,7 +82,8 @@ td input{width:120px;padding:8px 10px;margin-right:4px}
     <button class="go">Đăng nhập</button>
     <div id="err" class="err" role="alert"></div>
     <div class="demo" id="demo"></div>
-        <p style="text-align:center;margin:14px 0 0"><a href="#" onclick="showForgot(event)" style="color:var(--ac)">Quên mật khẩu?</a></p>
+    <p style="text-align:center;margin:14px 0 0"><a href="#" onclick="showForgot(event)" style="color:var(--ac)">Quên mật khẩu?</a></p>
+    <p style="text-align:center;margin:8px 0 0"><a href="#" onclick="showOtp(event)" style="color:var(--ac)">Tôi là người nhận hàng, xem mã OTP</a></p>
   </form>
 </div>
 
@@ -100,6 +102,19 @@ td input{width:120px;padding:8px 10px;margin-right:4px}
     <button class="go" id="fbtn">Gửi mã xác nhận</button>
     <div id="fmsg" class="err" role="alert"></div>
     <p style="text-align:center;margin:10px 0 0"><a href="#" onclick="hideForgot(event)" style="color:var(--ac)">Quay lại đăng nhập</a></p>
+  </form>
+</div>
+
+<div id="obox" class="center" hidden>
+  <form class="login" onsubmit="lookupOtp(event)">
+    <h1>Mã OTP nhận hàng</h1>
+    <p>Nhập mã vận đơn và số điện thoại người nhận. Bản thật sẽ gửi mã qua SMS.</p>
+    <label for="o_code">Mã vận đơn</label><input id="o_code" required>
+    <label for="o_ph">Số điện thoại người nhận</label><input id="o_ph" inputmode="tel" required>
+    <button class="go">Xem mã OTP</button>
+    <div id="omsg" class="err" role="alert"></div>
+    <div id="oshow" style="text-align:center;font-size:40px;font-weight:700;letter-spacing:6px;margin-top:8px"></div>
+    <p style="text-align:center;margin:10px 0 0"><a href="#" onclick="hideOtp(event)" style="color:var(--ac)">Quay lại đăng nhập</a></p>
   </form>
 </div>
 
@@ -203,9 +218,10 @@ async function start() {
       .filter(s => s.lat != null && s.lng != null);
   } catch (e) {}
   go(Object.keys(tabs)[0]);
+  updateBadge();
   clearInterval(S.timer);
   S.timer = setInterval(() => {
-    S.tick++;
+    S.tick++;    if (S.tick % 2 === 0) updateBadge();
     if (S.tab === 'map' || S.tick % 3 === 0) { if (!['INPUT', 'SELECT'].includes(document.activeElement.tagName)) refresh(); }
   }, 2000);
 }
@@ -259,11 +275,11 @@ const VIEW = {
     const raw = await api(mine ? '/api/Orders/mine' : '/api/Orders');
     const list = raw.map(o => mine
       ? { id: o.maDon, code: o.maVanDon, recv: o.tenNguoiNhan, addr: o.diaChiGiao, w: o.khoiLuongKg, fee: o.phiGiaoHang, status: o.trangThai, at: o.ngayTao, eta: o.thoiGianDuKienPhut, otp: o.maOtp }
-      : { id: o.id, code: o.trackingCode, recv: o.receiverName, addr: o.receiverAddress, w: o.packageWeightKg, fee: o.deliveryFee, status: o.status, at: o.createdAt, route: stn(o.pickupStationId) + ' → ' + stn(o.dropoffStationId) });
+      : { id: o.id, code: o.trackingCode, recv: o.receiverName, phone: o.receiverPhone, addr: o.receiverAddress, w: o.packageWeightKg, fee: o.deliveryFee, status: o.status, at: o.createdAt, route: stn(o.pickupStationId) + ' → ' + stn(o.dropoffStationId) });
     if (!list.length) return '<section><p class="empty">Chưa có đơn hàng nào.</p></section>';
     const rows = list.map(o => `<tr>
         <td><b>${esc(o.code)}</b><br><small>${dtime(o.at)}</small></td>
-        <td>${esc(o.recv)}<br><small>${esc(o.addr)}</small></td>
+        <td>${esc(o.recv)}${o.phone ? ' · ' + esc(o.phone) : ''}<br><small>${esc(o.addr)}</small></td>
         <td>${o.route ? esc(o.route) : (o.eta != null ? 'Dự kiến ' + o.eta + ' phút' : '')}</td>
         <td>${o.w} kg<br><small>${fmt(o.fee)} đ</small></td>
         <td>${chip(o.status)}${mine && o.otp && o.status !== 'Completed' ? `<br><small>Mã OTP: <b>${esc(o.otp)}</b></small>` : ''}</td>
@@ -597,6 +613,35 @@ async function forgotStep(ev) {
       $('#fbox').hidden = true; $('#login').hidden = false;
     }
   } catch (e) { msg.textContent = e.message; }
+}
+
+/* ---------- Huy hiệu số đơn cần xử lý ---------- */
+async function updateBadge() {
+  const r = S.user && S.user.role;
+  if (!['Dispatcher', 'SystemAdmin', 'StationOperator', 'LogisticsManager'].includes(r)) return;
+  try {
+    const list = await api('/api/Orders');
+    const want = r === 'StationOperator' ? ['Approved', 'Scheduled', 'InTransit']
+               : r === 'LogisticsManager' ? [] : ['Pending'];
+    const n = list.filter(o => want.includes(o.status)).length;
+    const b = document.querySelector('#tabs button[data-k="orders"]');
+    if (!b) return;
+    const old = b.querySelector('.badge');
+    if (old) old.remove();
+    if (n > 0) b.insertAdjacentHTML('beforeend', `<span class="badge" title="${n} đơn cần xử lý">${n}</span>`);
+  } catch (e) {}
+}
+
+/* ---------- Người nhận tra mã OTP (giả lập SMS) ---------- */
+function showOtp(ev) { ev.preventDefault(); $('#omsg').textContent = ''; $('#oshow').textContent = ''; $('#login').hidden = true; $('#obox').hidden = false; }
+function hideOtp(ev) { ev.preventDefault(); $('#obox').hidden = true; $('#login').hidden = false; }
+async function lookupOtp(ev) {
+  ev.preventDefault();
+  $('#omsg').textContent = ''; $('#oshow').textContent = '';
+  try {
+    const d = await api('/api/SmartDroneOrder/receiver-otp', { method: 'POST', body: { trackingCode: $('#o_code').value.trim(), phone: $('#o_ph').value.trim() } });
+    $('#oshow').textContent = d.otp;
+  } catch (e) { $('#omsg').textContent = e.message; }
 }
 
 /* ---------- Khởi động ---------- */

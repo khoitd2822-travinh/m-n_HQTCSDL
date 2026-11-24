@@ -248,6 +248,24 @@ namespace SmartDroneDelivery.Api.Controllers
             });
         }
 
+                // 6. Người nhận tra mã OTP (giả lập SMS gửi về số điện thoại người nhận)
+        [HttpPost("receiver-otp")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ReceiverOtp([FromBody] ReceiverOtpDto dto)
+        {
+            var code = (dto.TrackingCode ?? "").Trim().ToUpper();
+            var phone = (dto.Phone ?? "").Trim();
+            var rows = await _context.Database.SqlQuery<OtpRow>(
+                $"SELECT Status, OtpCode FROM dbo.Orders WHERE TrackingCode = {code} AND ReceiverPhone = {phone}")
+                .ToListAsync();
+            var r = rows.FirstOrDefault();
+            if (r == null)
+                return NotFound(new { message = "Mã vận đơn hoặc số điện thoại không khớp." });
+            if (r.Status != "InTransit")
+                return BadRequest(new { message = $"Đơn đang ở trạng thái {StatusVi.GetValueOrDefault(r.Status, r.Status)}. Mã OTP chỉ có khi drone đang giao." });
+            return Ok(new { otp = r.OtpCode });
+        }
+
         // Gọi AI service; nếu lỗi thì tính ETA dự phòng để hệ thống vẫn chạy
         private async Task<int> GetEtaMinutes(double distanceKm, double weightKg)
         {
@@ -302,6 +320,18 @@ namespace SmartDroneDelivery.Api.Controllers
         public class ChatDto
     {
         public string? Message { get; set; }
+    }
+
+        public class ReceiverOtpDto
+    {
+        public string? TrackingCode { get; set; }
+        public string? Phone { get; set; }
+    }
+
+    public class OtpRow
+    {
+        public string Status { get; set; } = "";
+        public string OtpCode { get; set; } = "";
     }
     public class StationPoint
     {
