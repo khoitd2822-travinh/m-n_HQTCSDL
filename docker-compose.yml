@@ -27,7 +27,7 @@ services:
       - ./database:/sql:ro
     entrypoint: >
       /bin/bash -c "
-      for f in smartdrone_schema.sql 02_procedures.sql 03_mock_data_.sql; do
+      for f in 01_schema.sql 02_procedures.sql 03_mock_data.sql; do
       /opt/mssql-tools18/bin/sqlcmd -S db -U sa -P 'SmartDrone@2026' -C -I -f 65001 -b -i /sql/$$f || exit 1;
       done"
     restart: "no"
@@ -58,7 +58,7 @@ services:
     container_name: drone-web
     restart: unless-stopped
     volumes:
-      - ./web:/usr/share/nginx/html:ro
+      - ./web-dashboard:/usr/share/nginx/html:ro
     ports:
       - "8080:80"
 

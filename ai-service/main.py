@@ -49,6 +49,9 @@ def root():
     return {"service": "SmartDrone AI Service", "status": "running",
             "endpoints": ["/ai/eta", "/ai/chat", "/ai/summary", "/docs"]}
 
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "smartdrone-ai-service"}
 
 @app.post("/ai/eta")
 def estimate_eta(data: ETARequest):
